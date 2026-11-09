@@ -1,0 +1,18 @@
+{
+  "name": "agrowish-project",
+  "version": "1.0.0",
+  "description": "agroWish - Smart Agricultural Decision Support System (SE-331 Capstone Project)",
+  "scripts": {
+    "dev": "concurrently -n \"backend,frontend\" -c \"blue.bold,green.bold\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "start": "concurrently -n \"backend,frontend\" -c \"blue.bold,green.bold\" \"npm run start --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "backend": "npm run dev --prefix backend",
+    "frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "docx": "^9.15.3"
+  }
+}
