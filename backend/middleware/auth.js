@@ -83,7 +83,22 @@ function authorizeRoles(...allowedRoles) {
   };
 }
 
+/**
+ * Admin-Only Access Control Middleware (FR-02, FR-25, FR-26)
+ * Ensures authenticated user possesses ADMIN role
+ */
+function adminMiddleware(req, res, next) {
+  if (!req.user || req.user.role !== 'ADMIN') {
+    return res.status(403).json({
+      success: false,
+      message: 'শুধুমাত্র অ্যাডমিন ব্যবহারকারীদের জন্য অনুমোদিত। (Forbidden: Admin role required)'
+    });
+  }
+  next();
+}
+
 module.exports = {
   authenticateToken,
-  authorizeRoles
+  authorizeRoles,
+  adminMiddleware
 };
