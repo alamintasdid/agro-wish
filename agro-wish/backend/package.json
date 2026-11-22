@@ -1,0 +1,31 @@
+{
+  "name": "agrowish-backend",
+  "version": "1.0.0",
+  "description": "agroWish Backend API - Authentication & Database Module (SE-331 Capstone Project)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "agriculture",
+    "farming",
+    "decision-support",
+    "capstone",
+    "bangladesh"
+  ],
+  "author": "Most Tasnim Jahan Rifa (agroWish Member 2)",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "docx": "^9.15.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
