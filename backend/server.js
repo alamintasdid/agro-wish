@@ -16,6 +16,9 @@ const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profile');
 const recommendationsRoutes = require('./routes/recommendations');
 const cropsRoutes = require('./routes/crops');
+const resourcesRoutes = require('./routes/resources');
+const chatRoutes = require('./routes/chat');
+const adminRoutes = require('./routes/admin');
 
 // Load environment configuration from .env
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -55,7 +58,7 @@ app.get('/api/health', (req, res) => {
       { id: 'M2', lead: 'Most Tasnim Jahan Rifa (241-35-116)', role: 'Backend & Data Lead', features: 'Authentication & Database Schema' },
       { id: 'M3', lead: 'Tasdid Al Amin (241-35-108)', role: 'Frontend & Usability Lead', features: 'Farm Profile Form & Bangla UI' }
     ],
-    endpoints: ['/api/auth', '/api/profile', '/api/recommendations', '/api/crops'],
+    endpoints: ['/api/auth', '/api/profile', '/api/resources', '/api/recommendations', '/api/crops', '/api/chat', '/api/admin'],
     port: PORT,
     timestamp: new Date().toISOString()
   });
@@ -64,8 +67,11 @@ app.get('/api/health', (req, res) => {
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/resources', resourcesRoutes);
 app.use('/api/recommendations', recommendationsRoutes);
 app.use('/api/crops', cropsRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Root fallback route
 app.get('/', (req, res) => {
