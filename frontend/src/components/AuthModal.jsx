@@ -474,12 +474,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
               )}
             </button>
           </form>
-
-          {/* Academic Footer */}
-          <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-            <span>SE-331 Capstone Project</span>
-            <span>Auth & DB Lead: Most Tasnim Jahan Rifa</span>
-          </div>
         </div>
       </div>
     </div>

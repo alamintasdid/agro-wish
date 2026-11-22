@@ -389,8 +389,481 @@ function generateRecommendation(farmConditions) {
   };
 }
 
+/**
+ * Normalizes season label across English/Bangla DB & profile values
+ */
+function normalizeSeason(raw) {
+  if (!raw) return 'রবি';
+  const s = String(raw).trim().toLowerCase();
+  if (s === 'rabi' || s === 'রবি') return 'রবি';
+  if (s === 'kharif-1' || s === 'খরিপ-১' || s === 'kharif 1') return 'খরিপ-১';
+  if (s === 'kharif-2' || s === 'খরিপ-২' || s === 'kharif 2') return 'খরিপ-২';
+  if (s === 'year-round' || s === 'সারা বছর') return 'সারা বছর';
+  return String(raw).trim();
+}
+
+/**
+ * Bilingual soil compatibility matcher (supports both English DB strings and Bangla soil_type enums)
+ */
+function soilMatches(recommendedSoilStr, farmerSoilBn) {
+  if (!recommendedSoilStr || !farmerSoilBn) return true;
+  const rec = String(recommendedSoilStr).toLowerCase();
+  const f = String(farmerSoilBn).trim();
+  if (rec.includes(f.toLowerCase())) return true;
+  const map = {
+    'দোআঁশ': ['loam', 'loamy'],
+    'বেলে': ['sandy', 'sandy loam'],
+    'এঁটেল': ['clay', 'clayey', 'clay loam'],
+    'পলি': ['silt', 'silty', 'alluvial']
+  };
+  const aliases = map[f] || [];
+  return aliases.some((kw) => rec.includes(kw));
+}
+
+/**
+ * Bilingual water requirement compatibility check
+ */
+function waterLevelFromText(waterReqStr) {
+  if (!waterReqStr) return 'মাঝারি';
+  const w = String(waterReqStr).toLowerCase();
+  if (w.includes('উচ্চ') || w.includes('high') || w.includes('mandatory')) return 'উচ্চ';
+  if (w.includes('স্বল্প') || w.includes('low')) return 'স্বল্প';
+  return 'মাঝারি';
+}
+
+/**
+ * Full SRS Multi-Option Decision Engine (FR-08, FR-09, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-21, FR-22, FR-23, FR-35)
+ */
+function generateFullSrsRecommendation({
+  farmer,
+  resources = [],
+  crops = [],
+  varietiesByCrop = {},
+  costItemsByCrop = {},
+  integratedCombos = [],
+  wasteRules = []
+}) {
+  const landSize = Math.max(0.5, parseFloat(farmer.land_size) || 1);
+  const budget = parseFloat(farmer.budget) || 0;
+  const soilType = farmer.soil_type || 'দোআঁশ';
+  const waterAvail = farmer.water_availability || 'মাঝারি';
+  const season = normalizeSeason(farmer.season || 'রবি');
+  const riskPref = farmer.risk_preference || 'MEDIUM';
+  const hasPond = Boolean(farmer.has_pond) || resources.some((r) => r.resource_type === 'pond');
+
+  // Parse legacy existing_resources array
+  let legacyResources = [];
+  if (farmer.existing_resources) {
+    try {
+      legacyResources = typeof farmer.existing_resources === 'string'
+        ? JSON.parse(farmer.existing_resources)
+        : farmer.existing_resources;
+      if (!Array.isArray(legacyResources)) legacyResources = [];
+    } catch {
+      legacyResources = [];
+    }
+  }
+
+  // Build unified resource_type Set
+  const resourceTypeSet = new Set();
+  for (const r of resources) {
+    if (r.resource_type) resourceTypeSet.add(r.resource_type);
+  }
+  if (hasPond) resourceTypeSet.add('pond');
+  if (waterAvail === 'উচ্চ') resourceTypeSet.add('water');
+  if (legacyResources.includes('dairy')) resourceTypeSet.add('livestock');
+  if (legacyResources.includes('poultry')) resourceTypeSet.add('poultry');
+  if (legacyResources.includes('crop_residues')) resourceTypeSet.add('crop_residue');
+  if (legacyResources.includes('compost')) resourceTypeSet.add('organic_material');
+  if (legacyResources.includes('fisheries')) resourceTypeSet.add('pond');
+
+  const hasOrganicResource =
+    resourceTypeSet.has('livestock') ||
+    resourceTypeSet.has('poultry') ||
+    resourceTypeSet.has('organic_material');
+  const fertilizerDiscountRate = hasOrganicResource ? 0.18 : 0.0;
+
+  // Source crop list (DB crops preferred; fallback to CROP_DATABASE if empty)
+  const sourceCrops = crops.length > 0
+    ? crops.map((c) => ({
+        crop_id: c.crop_id,
+        crop_name: c.crop_name,
+        bengali_name: c.bengali_name || c.crop_name,
+        season: normalizeSeason(c.season),
+        crop_category: c.crop_category || 'ফসল',
+        recommended_soil: c.recommended_soil || 'দোআঁশ',
+        water_requirement: c.water_requirement || 'মাঝারি',
+        avg_cost_per_decimal: parseFloat(c.avg_cost_per_decimal) || 350,
+        avg_revenue_per_decimal: parseFloat(c.avg_revenue_per_decimal) || 600,
+        varieties: varietiesByCrop[c.crop_id] || []
+      }))
+    : CROP_DATABASE.map((dc) => ({
+        crop_id: dc.crop_id,
+        crop_name: dc.name,
+        bengali_name: dc.name_bn,
+        season: normalizeSeason(dc.seasons[0]),
+        crop_category: dc.category,
+        recommended_soil: dc.suitable_soils.join(', '),
+        water_requirement: dc.water_need,
+        avg_cost_per_decimal: dc.base_cost_per_decimal,
+        avg_revenue_per_decimal: Math.round((dc.base_return_min_per_decimal + dc.base_return_max_per_decimal) / 2),
+        varieties: dc.varieties.map((v, idx) => ({
+          variety_id: null,
+          variety_name: v.name,
+          bengali_name: v.name_bn,
+          duration_days: parseInt(String(v.duration).replace(/\D/g, ''), 10) || 120,
+          yield_per_decimal_kg: parseFloat(String(v.yield_kg).replace(/[^\d.]/g, '')) || 20,
+          pest_resistance_notes: v.note
+        }))
+      }));
+
+  // Evaluate every crop
+  const evaluated = sourceCrops.map((crop) => {
+    const seasonMatch = crop.season === season || crop.season === 'সারা বছর';
+    const soilMatch = soilMatches(crop.recommended_soil, soilType);
+    const cropWaterLvl = waterLevelFromText(crop.water_requirement);
+    const waterMatch =
+      cropWaterLvl === waterAvail ||
+      waterAvail === 'উচ্চ' ||
+      (waterAvail === 'মাঝারি' && cropWaterLvl === 'স্বল্প');
+
+    // Compute cost breakdown using DB cost_items if present
+    const dbCostItems = costItemsByCrop[crop.crop_id] || [];
+    let estCostMin = 0;
+    let estCostMax = 0;
+    let seedCost = 0;
+    let standardFertCost = 0;
+    let irrigationCost = 0;
+    let laborCost = 0;
+    let pesticideCost = 0;
+
+    if (dbCostItems.length > 0) {
+      for (const item of dbCostItems) {
+        const minTotal = Math.round(parseFloat(item.cost_min_per_decimal) * landSize);
+        const maxTotal = Math.round(parseFloat(item.cost_max_per_decimal) * landSize);
+        const midTotal = Math.round((minTotal + maxTotal) / 2);
+        estCostMin += minTotal;
+        estCostMax += maxTotal;
+        if (item.item_category === 'seed') seedCost += midTotal;
+        else if (item.item_category === 'fertilizer') standardFertCost += midTotal;
+        else if (item.item_category === 'irrigation') irrigationCost += midTotal;
+        else if (item.item_category === 'pesticide') pesticideCost += midTotal;
+        else laborCost += midTotal;
+      }
+    } else {
+      const baseCost = Math.round(crop.avg_cost_per_decimal * landSize);
+      estCostMin = Math.round(baseCost * 0.9);
+      estCostMax = Math.round(baseCost * 1.15);
+      seedCost = Math.round(baseCost * 0.15);
+      standardFertCost = Math.round(baseCost * 0.35);
+      irrigationCost = Math.round(baseCost * 0.25);
+      laborCost = Math.round(baseCost * 0.25);
+    }
+
+    const fertSavings = Math.round(standardFertCost * fertilizerDiscountRate);
+    const effectiveFertCost = Math.max(0, standardFertCost - fertSavings);
+    estCostMin = Math.max(0, estCostMin - fertSavings);
+    estCostMax = Math.max(estCostMin, estCostMax - Math.round(fertSavings * 0.8));
+    const totalEstCost = seedCost + effectiveFertCost + irrigationCost + laborCost + pesticideCost;
+
+    const estReturnMin = Math.round(crop.avg_revenue_per_decimal * 0.9 * landSize);
+    const estReturnMax = Math.round(crop.avg_revenue_per_decimal * 1.2 * landSize);
+    const avgReturn = Math.round((estReturnMin + estReturnMax) / 2);
+    const netProfit = avgReturn - totalEstCost;
+    const roi = totalEstCost > 0 ? Math.round((netProfit / totalEstCost) * 100) : 0;
+    const fitsBudget = budget <= 0 || estCostMin <= budget * 1.15;
+
+    // Confidence score (0 - 100)
+    let confidence = 45;
+    const reasons = [];
+    if (seasonMatch) {
+      confidence += 28;
+      reasons.push(`${season} মৌসুমের উপযোগী`);
+    }
+    if (soilMatch) {
+      confidence += 15;
+      reasons.push(`${soilType} মাটির জন্য অনুকূল`);
+    } else {
+      reasons.push(`${soilType} মাটিতে বাড়তি জৈব সার ও পরিচর্যা প্রয়োজন`);
+    }
+    if (waterMatch) {
+      confidence += 7;
+      reasons.push(`পানির প্রাপ্যতার (${waterAvail}) সাথে সামঞ্জস্যপূর্ণ`);
+    } else {
+      confidence -= 10;
+      reasons.push(`ফসলের সেচ চাহিদা (${cropWaterLvl}) খামারের পানির প্রাপ্যতার চেয়ে বেশি`);
+    }
+    if (fitsBudget) {
+      confidence += 5;
+      if (budget > 0) reasons.push(`বাজেটের (৳${budget}) মধ্যে বাস্তবায়নযোগ্য`);
+    } else {
+      confidence -= 12;
+      reasons.push(`ন্যূনতম ব্যয় (৳${estCostMin}) নির্ধারিত বাজেটের চেয়ে বেশি`);
+    }
+    if (riskPref === 'LOW' && crop.avg_cost_per_decimal <= 400) confidence += 4;
+    if (riskPref === 'HIGH' && roi >= 65) confidence += 4;
+
+    confidence = Math.min(98, Math.max(40, confidence));
+
+    const synergyBadges = [];
+    if (hasOrganicResource && fertSavings > 0) {
+      synergyBadges.push({
+        type: 'ORGANIC_SAVINGS',
+        text: `খামারের জৈব সম্পদে সারের খরচ ৳${fertSavings} সাশ্রয়`,
+        savings_amount: fertSavings
+      });
+    }
+    if (hasPond) {
+      synergyBadges.push({
+        type: 'POND_SYNERGY',
+        text: 'পুকুরের পানি ও পাড় সমন্বিতভাবে ব্যবহারযোগ্য',
+        savings_amount: 0
+      });
+    }
+
+    const topVariety = crop.varieties && crop.varieties.length > 0 ? crop.varieties[0] : null;
+    const avgDuration = topVariety ? topVariety.duration_days : 120;
+
+    return {
+      item_type: 'CROP',
+      crop_id: crop.crop_id,
+      variety_id: topVariety ? topVariety.variety_id : null,
+      crop_name: crop.crop_name,
+      bengali_name: crop.bengali_name,
+      season: crop.season,
+      crop_category: crop.crop_category,
+      duration_days: avgDuration,
+      recommended_soil: crop.recommended_soil,
+      water_requirement: crop.water_requirement,
+      cost_per_decimal: crop.avg_cost_per_decimal,
+      return_per_decimal: crop.avg_revenue_per_decimal,
+      est_cost_min: estCostMin,
+      est_cost_max: estCostMax,
+      total_estimated_cost: totalEstCost,
+      est_return_min: estReturnMin,
+      est_return_max: estReturnMax,
+      total_gross_return: avgReturn,
+      projected_net_profit: netProfit,
+      profit_margin_roi: roi,
+      confidence_score: confidence,
+      season_match: seasonMatch,
+      soil_match: soilMatch,
+      fits_budget: fitsBudget,
+      reason: reasons.join('। ') + '।',
+      assumptions: `প্রতি শতকে গড় ব্যয় ৳${crop.avg_cost_per_decimal} ও গড় ফলনমূল্য ৳${crop.avg_revenue_per_decimal} ধরে ${landSize} শতক জমির জন্য হিসাবকৃত।`,
+      expert_verification_needed: !soilMatch || !fitsBudget,
+      cost_breakdown: {
+        seed_cost: seedCost,
+        fertilizer_cost: effectiveFertCost,
+        standard_fertilizer_cost: standardFertCost,
+        fertilizer_savings: fertSavings,
+        irrigation_cost: irrigationCost,
+        pesticide_cost: pesticideCost,
+        labor_and_operations: laborCost,
+        items: dbCostItems.map((ci) => ({
+          item_name: ci.item_name,
+          category: ci.item_category,
+          min_total: Math.round(parseFloat(ci.cost_min_per_decimal) * landSize),
+          max_total: Math.round(parseFloat(ci.cost_max_per_decimal) * landSize)
+        }))
+      },
+      synergy_badges: synergyBadges,
+      varieties: crop.varieties.map((v) => ({
+        variety_id: v.variety_id,
+        name: v.variety_name,
+        name_bn: v.bengali_name || v.variety_name,
+        duration_days: v.duration_days,
+        yield_kg: `${v.yield_per_decimal_kg} কেজি/শতক`,
+        notes: v.pest_resistance_notes
+      }))
+    };
+  });
+
+  // Strict season + soil + budget matching (FR-08, FR-16)
+  let selectedCrops = evaluated.filter((c) => c.season_match && c.soil_match && c.fits_budget);
+  let isFallback = false;
+  let fallbackReason = '';
+
+  if (selectedCrops.length === 0) {
+    isFallback = true;
+    // Fallback 1: season + budget (relaxed soil)
+    selectedCrops = evaluated.filter((c) => c.season_match && c.fits_budget);
+    if (selectedCrops.length > 0) {
+      fallbackReason = `${season} মৌসুমে ${soilType} মাটির জন্য সরাসরি উপযোগী বাজেট-সম্মত ফসল না থাকায় কাছাকাছি অনুকূল বিকল্প ফসল সুপারিশ করা হলো।`;
+    }
+  }
+
+  if (selectedCrops.length === 0) {
+    isFallback = true;
+    // Fallback 2: season only (relaxed budget)
+    selectedCrops = evaluated.filter((c) => c.season_match);
+    if (selectedCrops.length > 0) {
+      fallbackReason = `নির্ধারিত বাজেটের (৳${budget}) মধ্যে ${season} মৌসুমের পূর্ণ জমির ফসল সংকুলান না হওয়ায় সবচেয়ে সাশ্রয়ী বিকল্পগুলো ক্রমানুসারে দেখানো হলো।`;
+    }
+  }
+
+  if (selectedCrops.length === 0) {
+    isFallback = true;
+    selectedCrops = [...evaluated].sort((a, b) => a.est_cost_min - b.est_cost_min).slice(0, 3);
+    fallbackReason = 'বর্তমান প্রোফাইলের ভিত্তিতে সর্বনিম্ন ঝুঁকি ও খরচের সাধারণ বিকল্প ফসল সুপারিশ করা হলো।';
+  }
+
+  selectedCrops.sort((a, b) => {
+    if (b.confidence_score !== a.confidence_score) return b.confidence_score - a.confidence_score;
+    return b.projected_net_profit - a.projected_net_profit;
+  });
+
+  const cropOptions = selectedCrops.slice(0, 4).map((c) => ({
+    ...c,
+    is_fallback: isFallback,
+    fallback_tag: isFallback ? 'বিকল্প সুপারিশ (Fallback)' : 'অনুকূল ও সর্বোত্তম সুপারিশ'
+  }));
+
+  // Evaluate Integrated Farming Combinations (FR-12)
+  const integratedOptions = [];
+  for (const combo of integratedCombos) {
+    const reqTypes = String(combo.compatibility_rule || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const matchedTypes = reqTypes.filter((t) => resourceTypeSet.has(t));
+    if (reqTypes.length === 0 || matchedTypes.length === reqTypes.length) {
+      integratedOptions.push({
+        item_type: 'INTEGRATED',
+        combo_id: combo.combo_id,
+        title: combo.combo_name,
+        description: combo.description,
+        compatibility_rule: combo.compatibility_rule,
+        matched_resources: matchedTypes,
+        est_cost_min: parseFloat(combo.est_cost_min),
+        est_cost_max: parseFloat(combo.est_cost_max),
+        est_return_min: parseFloat(combo.est_return_min),
+        est_return_max: parseFloat(combo.est_return_max),
+        confidence_score: matchedTypes.length >= 2 ? 92 : 85,
+        reason: `আপনার খামারের রেকর্ডকৃত সম্পদের (${matchedTypes.join(', ') || 'সাধারণ'}) সাথে সরাসরি সামঞ্জস্যপূর্ণ।`,
+        assumptions: 'মাঝারি আকারের খামারে ১ মৌসুমে সমন্বিত ব্যবস্থাপনা ধরে প্রাক্কলিত।',
+        risk_note: combo.risk_note,
+        safety_note: combo.risk_note,
+        expert_verification_needed: Boolean(combo.expert_verification_needed)
+      });
+    }
+  }
+
+  // If no integrated combo matched user's exact resources, provide top general guidance combo with note
+  if (integratedOptions.length === 0 && integratedCombos.length > 0) {
+    const fallbackCombo = integratedCombos[0];
+    integratedOptions.push({
+      item_type: 'INTEGRATED',
+      combo_id: fallbackCombo.combo_id,
+      title: fallbackCombo.combo_name,
+      description: fallbackCombo.description,
+      compatibility_rule: fallbackCombo.compatibility_rule,
+      matched_resources: [],
+      est_cost_min: parseFloat(fallbackCombo.est_cost_min),
+      est_cost_max: parseFloat(fallbackCombo.est_cost_max),
+      est_return_min: parseFloat(fallbackCombo.est_return_min),
+      est_return_max: parseFloat(fallbackCombo.est_return_max),
+      confidence_score: 62,
+      reason: 'সমন্বিত খামার শুরু করার জন্য প্রাথমিক মডেল (প্রয়োজনীয় সম্পদ: পুকুর/গবাদিপশু যুক্ত করলে পূর্ণ সুবিধা মিলবে)।',
+      assumptions: 'নতুন সমন্বিত ইউনিট স্থাপন খরচ অন্তর্ভুক্ত করে আনুমানিক হিসাব।',
+      risk_note: fallbackCombo.risk_note,
+      safety_note: fallbackCombo.risk_note,
+      expert_verification_needed: true
+    });
+  }
+
+  // Evaluate Waste-to-Value Rules (FR-13, FR-22)
+  const hasCerealCrop = cropOptions.some((c) => /rice|wheat|maize|ধান|গম|ভুট্টা/i.test(`${c.crop_name} ${c.bengali_name}`));
+  const wasteOptions = [];
+  for (const rule of wasteRules) {
+    const src = String(rule.source_activity || '').trim();
+    const matched = resourceTypeSet.has(src) || (src === 'crop_residue' && hasCerealCrop);
+    if (matched) {
+      wasteOptions.push({
+        item_type: 'WASTE_TO_VALUE',
+        rule_id: rule.rule_id,
+        title: `${rule.by_product} → ${rule.target_activity}`,
+        source_activity: rule.source_activity,
+        by_product: rule.by_product,
+        target_activity: rule.target_activity,
+        usage_method: rule.usage_method,
+        safety_note: rule.safety_note,
+        est_cost_min: parseFloat(rule.est_cost_min),
+        est_cost_max: parseFloat(rule.est_cost_max),
+        est_return_min: parseFloat(rule.est_return_min),
+        est_return_max: parseFloat(rule.est_return_max),
+        confidence_score: 88,
+        reason: `আপনার খামারের '${src}' উপজাত থেকে কম খরচে বাড়তি আয় ও সার সাশ্রয় সম্ভব।`,
+        assumptions: 'খামারের নিজস্ব উপজাত ব্যবহার করে ১ চক্র উৎপাদন খরচ ও বাজারদর প্রাক্কলন।',
+        expert_verification_needed: Boolean(rule.expert_verification_needed !== undefined ? rule.expert_verification_needed : true)
+      });
+    }
+  }
+
+  // Ensure at least 1 safe crop_residue/compost rule is visible if user has no matching resources yet
+  if (wasteOptions.length === 0 && wasteRules.length > 0) {
+    const rule = wasteRules.find((r) => r.source_activity === 'organic_material') || wasteRules[0];
+    wasteOptions.push({
+      item_type: 'WASTE_TO_VALUE',
+      rule_id: rule.rule_id,
+      title: `${rule.by_product} → ${rule.target_activity}`,
+      source_activity: rule.source_activity,
+      by_product: rule.by_product,
+      target_activity: rule.target_activity,
+      usage_method: rule.usage_method,
+      safety_note: rule.safety_note,
+      est_cost_min: parseFloat(rule.est_cost_min),
+      est_cost_max: parseFloat(rule.est_cost_max),
+      est_return_min: parseFloat(rule.est_return_min),
+      est_return_max: parseFloat(rule.est_return_max),
+      confidence_score: 70,
+      reason: 'সাধারণ জৈব বর্জ্য পুনর্ব্যবহার মডেল (খামার সম্পদ যোগ করলে আরও নির্দিষ্ট পরামর্শ পাওয়া যাবে)।',
+      assumptions: 'প্রাথমিক ক্ষুদ্র পরিসরে কম্পোস্ট উৎপাদন হিসাব।',
+      expert_verification_needed: true
+    });
+  }
+
+  const topName = cropOptions[0]?.bengali_name || 'উপযুক্ত ফসল';
+  const secondName = cropOptions[1]?.bengali_name || topName;
+  const explanationBn = `আপনার খামারের অবস্থান (${farmer.district || 'বাংলাদেশ'}), ${landSize} শতক ${soilType} মাটি এবং ${season} মৌসুমের ভিত্তিতে '${topName}' সর্বোচ্চ উপযোগী হিসেবে নির্বাচিত হয়েছে। পাশাপাশি ঝুঁকি ও ব্যয় ভারসাম্যের জন্য '${secondName}' একটি চমৎকার বিকল্প। আপনার ${resources.length}টি নিবন্ধিত খামার সম্পদের সাথে মিলিয়ে ${integratedOptions.length}টি সমন্বিত চাষ ও ${wasteOptions.length}টি বর্জ্য-থেকে-সম্পদ পরিকল্পনা যুক্ত করা হয়েছে।`;
+
+  const uncertaintyNote = 'প্রদর্শিত খরচ ও সম্ভাব্য আয় BRRI, BARI এবং DAE-এর আদর্শ তথ্যের ওপর ভিত্তি করে একটি আনুমানিক পরিসর মাত্র। আবহাওয়া, বাজারদর ও মাটির স্থানীয় গুণের কারণে বাস্তব ফলাফল পরিবর্তিত হতে পারে।';
+  const expertNotice = 'নতুন সমন্বিত খামার, জৈব বর্জ্য প্রক্রিয়াজাতকরণ বা বৃহৎ বিনিয়োগের আগে অবশ্যই স্থানীয় উপজেলা কৃষি কর্মকর্তা (DAE), মৎস্য কর্মকর্তা (DoF) বা প্রাণিসম্পদ কর্মকর্তার (DLS) পরামর্শ ও যাচাইকরণ গ্রহণ করুন।';
+
+  return {
+    recommendation_type: riskPref === 'LOW' ? 'LOW_RISK' : (riskPref === 'HIGH' ? 'MAX_PROFIT' : 'BALANCED'),
+    model_version: 'agroWish-v2.0-srs-engine',
+    generated_at: new Date().toISOString(),
+    is_fallback: isFallback,
+    fallback_reason: fallbackReason,
+    explanation_bn: explanationBn,
+    uncertainty_note: uncertaintyNote,
+    expert_verification_notice: expertNotice,
+    farmer_summary: {
+      district: farmer.district,
+      upazila: farmer.upazila,
+      land_size: landSize,
+      soil_type: soilType,
+      water_availability: waterAvail,
+      season: season,
+      budget: budget,
+      farming_goal: farmer.farming_goal || 'সুষম মুনাফা ও খাদ্য নিরাপত্তা',
+      risk_preference: riskPref,
+      has_pond: hasPond,
+      has_organic_resource: hasOrganicResource,
+      recorded_resource_types: [...resourceTypeSet]
+    },
+    crop_options: cropOptions,
+    integrated_options: integratedOptions,
+    waste_to_value_options: wasteOptions
+  };
+}
+
 module.exports = {
   generateRecommendation,
+  generateFullSrsRecommendation,
+  normalizeSeason,
+  soilMatches,
   CROP_DATABASE
 };
 

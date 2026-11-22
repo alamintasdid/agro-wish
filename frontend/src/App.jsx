@@ -1,41 +1,38 @@
 /**
- * agroWish Frontend - Main Application Shell & Capstone Integrated Dashboard
+ * agroWish Frontend - Main Application Shell & Full SRS Integrated Dashboard
  * SE-331 Software Engineering Design Capstone Project
  * - Member 1: Md Adnan Ul Islam (ID: 241-35-103) - AI & Recommendation Lead
  * - Member 2: Most Tasnim Jahan Rifa (ID: 241-35-116) - Backend & Data Lead
  * - Member 3: Tasdid Al Amin (ID: 241-35-108) - Frontend & Usability Lead
- * 
- * SRS Reference:
- * - Section 5: FR-01, FR-02, FR-03, FR-04, FR-05, FR-06, FR-07, FR-08, FR-09, FR-14, FR-15, FR-16, FR-30, FR-31, FR-35
- * - Section 6: NFR-01, NFR-03, NFR-04
- * - Section 7.4: ERD
  */
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Sprout, 
-  LogOut, 
-  LogIn, 
-  Phone, 
-  Mail, 
-  ShieldCheck, 
-  Tractor, 
-  Layers, 
-  TrendingUp, 
-  Calendar, 
-  CheckCircle, 
-  Database, 
-  ArrowRight, 
-  Sparkles, 
-  Wheat,
+import {
+  Sprout,
+  LogOut,
+  LogIn,
+  Phone,
+  Mail,
+  ShieldCheck,
+  Tractor,
+  Layers,
+  TrendingUp,
+  Database,
+  ArrowRight,
+  Sparkles,
   CheckCircle2,
   AlertTriangle,
-  Wallet,
-  Sparkle
+  Boxes,
+  History,
+  MessageSquare
 } from 'lucide-react';
 import AuthModal from './components/AuthModal';
 import FarmProfileForm from './components/FarmProfileForm';
+import ResourceManager from './components/ResourceManager';
 import RecommendationList from './components/RecommendationList';
+import RecommendationHistory from './components/RecommendationHistory';
+import BanglaChatAssistant from './components/BanglaChatAssistant';
+import AdminDashboard from './components/AdminDashboard';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -43,9 +40,23 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [profileSummary, setProfileSummary] = useState(null);
   const [isProfileComplete, setIsProfileComplete] = useState(false);
-  
-  // Dashboard Tabs: 'profileForm' | 'recommendations'
+
+  // Active Navigation View: 'profileForm' | 'resources' | 'recommendations' | 'history' | 'chat' | 'admin'
   const [activeTab, setActiveTab] = useState('profileForm');
+
+  const hydrateProfileSummary = (profileData) => {
+    if (!profileData) return;
+    setProfileSummary(profileData);
+    const complete = Boolean(
+      profileData.district &&
+      profileData.upazila &&
+      profileData.land_size &&
+      parseFloat(profileData.land_size) > 0 &&
+      profileData.soil_type &&
+      profileData.season
+    );
+    setIsProfileComplete(complete);
+  };
 
   // Restore stored session and verify token on startup (FR-31)
   useEffect(() => {
@@ -58,11 +69,8 @@ export default function App() {
         setToken(savedToken);
         setUser(parsedUser);
 
-        // Verify active token session with backend GET /api/auth/me
         fetch('/api/auth/me', {
-          headers: {
-            'Authorization': `Bearer ${savedToken}`
-          }
+          headers: { 'Authorization': `Bearer ${savedToken}` }
         })
           .then((res) => {
             if (res.ok) return res.json();
@@ -72,23 +80,55 @@ export default function App() {
             if (data.success && data.user) {
               setUser(data.user);
               localStorage.setItem('agrowish_user', JSON.stringify(data.user));
+              if (data.user.profile) {
+                hydrateProfileSummary(data.user.profile);
+              }
             }
           })
           .catch(() => {
             handleLogout();
           });
-      } catch (err) {
+      } catch {
         handleLogout();
       }
-    } else {
-      setIsAuthModalOpen(true);
     }
   }, []);
+
+  // Update document title dynamically per SPA page (Accessibility 2.4.2)
+  useEffect(() => {
+    const titles = {
+      profileForm: 'খামারের তথ্য | agroWish',
+      resources: 'সম্পদ ও লক্ষ্য | agroWish',
+      recommendations: 'ফসল ও সমন্বিত সুপারিশ | agroWish',
+      history: 'পূর্ববর্তী সুপারিশ | agroWish',
+      chat: 'বাংলা কৃষি সহায়ক | agroWish',
+      admin: 'অ্যাডমিন প্যানেল | agroWish'
+    };
+    document.title = user ? (titles[activeTab] || 'agroWish - স্মার্ট কৃষি সহায়ক') : 'agroWish - স্মার্ট কৃষি সহায়ক ও ফসল পরিকল্পনা';
+  }, [activeTab, user]);
 
   const handleAuthSuccess = (authenticatedUser, authToken) => {
     setUser(authenticatedUser);
     setToken(authToken);
     setIsAuthModalOpen(false);
+    if (authenticatedUser?.role === 'ADMIN') {
+      setActiveTab('admin');
+    } else {
+      setActiveTab('profileForm');
+    }
+    // Load profile status right after login
+    if (authToken) {
+      fetch('/api/profile/me', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.success && d.profile) {
+            hydrateProfileSummary(d.profile);
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleLogout = async () => {
@@ -98,7 +138,7 @@ export default function App() {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
-      } catch (e) {
+      } catch {
         // Silently continue
       }
     }
@@ -108,14 +148,13 @@ export default function App() {
     setToken(null);
     setProfileSummary(null);
     setIsProfileComplete(false);
-    setIsAuthModalOpen(true);
+    setActiveTab('profileForm');
+    setIsAuthModalOpen(false);
   };
 
-  // Callback when profile is saved in FarmProfileForm
   const handleProfileSaved = (updatedProfile, complete) => {
     setProfileSummary(updatedProfile);
     setIsProfileComplete(complete);
-    // Smoothly transition to recommendations tab once complete
     if (complete) {
       setActiveTab('recommendations');
     }
@@ -123,117 +162,123 @@ export default function App() {
 
   const displayName = user ? (user.full_name || user.name || 'সম্মানিত কৃষক') : '';
 
+  const navItems = [
+    { id: 'profileForm', label: 'খামারের তথ্য', icon: Layers },
+    { id: 'resources', label: 'সম্পদ ও লক্ষ্য', icon: Boxes },
+    { id: 'recommendations', label: 'সুপারিশ ও তুলনা', icon: TrendingUp },
+    { id: 'history', label: 'পূর্ববর্তী সুপারিশ', icon: History },
+    { id: 'chat', label: 'বাংলা কৃষি চ্যাট', icon: MessageSquare },
+    ...(user?.role === 'ADMIN' ? [{ id: 'admin', label: 'অ্যাডমিন প্যানেল', icon: ShieldCheck }] : [])
+  ];
+
+  const handleNavClick = (e, id) => {
+    setActiveTab(id);
+    e.currentTarget?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
-      {/* -------------------- Top Navigation Bar -------------------- */}
+      <a href="#main-content" className="skip-link visually-hidden bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold">
+        মূল বিষয়বস্তুতে যান
+      </a>
+
+      {/* -------------------- Top Header -------------------- */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-18">
-            
-            {/* Left: Branding & Course Info */}
+            {/* Left: Branding */}
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center w-11 h-11 bg-gradient-to-tr from-emerald-600 to-teal-500 text-white rounded-2xl shadow-md shadow-emerald-500/20">
-                <Sprout className="w-6 h-6" />
+                <Sprout className="w-6 h-6" aria-hidden="true" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-emerald-700 to-teal-700 bg-clip-text text-transparent">
                     agroWish
                   </span>
-                  <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full border border-emerald-200">
-                    SE-331 Capstone
-                  </span>
                 </div>
                 <p className="text-xs text-slate-500 hidden sm:block">
-                  স্মার্ট কৃষি সহায়ক ও ফসল পরিকল্পনা প্ল্যাটফর্ম
+                  স্মার্ট কৃষি সহায়ক ও সমন্বিত খামার পরিকল্পনা প্ল্যাটফর্ম
                 </p>
               </div>
             </div>
 
-            {/* Right: Farmer's Name & Logout Button */}
+            {/* Right: User & Logout */}
             <div className="flex items-center gap-3">
               {user ? (
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2.5 bg-slate-100/90 hover:bg-slate-100 py-1.5 px-3 rounded-2xl border border-slate-200 transition-all">
+                  <div className="flex items-center gap-2.5 bg-slate-100/90 py-1.5 px-3 rounded-2xl border border-slate-200">
                     <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs uppercase shadow-sm">
                       {displayName.charAt(0)}
                     </div>
                     <div className="text-left hidden md:block">
-                      <div className="text-xs font-bold text-slate-800 leading-tight">
-                        {displayName}
-                      </div>
+                      <div className="text-xs font-bold text-slate-800 leading-tight">{displayName}</div>
                       <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
                         {user.role === 'ADMIN' ? (
-                          <>
-                            <ShieldCheck className="w-3 h-3" /> অ্যাডমিন
-                          </>
+                          <><ShieldCheck className="w-3 h-3" aria-hidden="true" /> অ্যাডমিন</>
                         ) : (
-                          <>
-                            <Tractor className="w-3 h-3" /> কৃষক সদস্য
-                          </>
+                          <><Tractor className="w-3 h-3" aria-hidden="true" /> কৃষক সদস্য</>
                         )}
                       </div>
                     </div>
                   </div>
 
                   <button
+                    type="button"
                     onClick={handleLogout}
-                    title="লগআউট করুন"
-                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200 transition-all duration-200 cursor-pointer"
+                    aria-label="লগআউট করুন"
+                    className="flex items-center gap-1.5 px-3.5 py-2 min-h-11 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200 transition-all cursor-pointer"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="w-4 h-4" aria-hidden="true" />
                     <span className="hidden sm:inline">লগআউট</span>
                   </button>
                 </div>
               ) : (
                 <button
+                  type="button"
                   onClick={() => setIsAuthModalOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                  className="flex items-center gap-2 px-4 py-2 min-h-11 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md cursor-pointer"
                 >
-                  <LogIn className="w-4 h-4" />
+                  <LogIn className="w-4 h-4" aria-hidden="true" />
                   <span>লগইন / নিবন্ধন</span>
                 </button>
               )}
             </div>
-
           </div>
         </div>
       </header>
 
-      {/* -------------------- Main Workspace Content -------------------- */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* -------------------- Main Workspace -------------------- */}
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {user ? (
-          /* ================= Authenticated Farmer View ================= */
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6">
             {/* Welcome Greeting Banner */}
             <div className="relative overflow-hidden bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 rounded-3xl p-6 sm:p-8 text-white shadow-xl">
-              <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/5 rounded-full blur-2xl pointer-events-none" />
-              <div className="relative z-10 max-w-2xl">
+              <div className="relative z-10 max-w-3xl">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-medium text-emerald-200 border border-white/15 mb-3">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-300" aria-hidden="true" />
                   সক্রিয় সেশন: {user.role === 'ADMIN' ? 'সিস্টেম অ্যাডমিনিস্ট্রেটর' : 'নিবন্ধিত কৃষক সদস্য'}
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
                   স্বাগতম, {displayName}! 🌱
                 </h1>
                 <p className="mt-2 text-emerald-100 text-xs sm:text-sm leading-relaxed">
-                  আপনার খামারের মাটি, পানির উৎস ও মৌসুমি বৈশিষ্ট্যের ভিত্তিতে agroWish এআই সেরা ফসল এবং সার ব্যবহারের নির্ভুল পরামর্শ তৈরি করবে।
+                  খামারের মাটি, বাজেট, বিদ্যমান সম্পদ এবং সরকারি গবেষণা তথ্যভাণ্ডারের সমন্বয়ে সেরা ফসল, সমন্বিত চাষ ও নিরাপদ বর্জ্য-থেকে-সম্পদ পরামর্শ পান।
                 </p>
 
-                {/* Farmer Details */}
-                <div className="mt-5 flex flex-wrap gap-2.5 text-xs">
+                <div className="mt-4 flex flex-wrap gap-2 text-xs">
                   <div className="flex items-center gap-1.5 bg-black/20 px-3 py-1.5 rounded-lg border border-white/10">
-                    <Mail className="w-3.5 h-3.5 text-emerald-300" />
+                    <Mail className="w-3.5 h-3.5 text-emerald-300" aria-hidden="true" />
                     <span>{user.email}</span>
                   </div>
                   {user.phone && (
                     <div className="flex items-center gap-1.5 bg-black/20 px-3 py-1.5 rounded-lg border border-white/10">
-                      <Phone className="w-3.5 h-3.5 text-emerald-300" />
+                      <Phone className="w-3.5 h-3.5 text-emerald-300" aria-hidden="true" />
                       <span>{user.phone}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-1.5 bg-black/20 px-3 py-1.5 rounded-lg border border-white/10">
-                    <Database className="w-3.5 h-3.5 text-emerald-300" />
+                    <Database className="w-3.5 h-3.5 text-emerald-300" aria-hidden="true" />
                     <span>আইডি #{user.id || user.user_id}</span>
                   </div>
                 </div>
@@ -241,97 +286,110 @@ export default function App() {
             </div>
 
             {/* Profile Status Summary Card */}
-            <div className={`p-5 sm:p-6 rounded-3xl border transition-all ${
-              isProfileComplete 
-                ? 'bg-emerald-50/70 border-emerald-200' 
-                : 'bg-amber-50/70 border-amber-200'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-start gap-3.5">
-                  <div className={`p-3 rounded-2xl flex-shrink-0 ${
-                    isProfileComplete ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
-                  }`}>
-                    {isProfileComplete ? <CheckCircle2 className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-slate-900 text-base">
-                        খামার প্রোফাইল স্ট্যাটাস: {isProfileComplete ? 'সম্পূর্ণ (Complete)' : 'অপূর্ণ (Pending)'}
-                      </h3>
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                        isProfileComplete ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
-                      }`}>
-                        {isProfileComplete ? 'সক্রিয় ও প্রস্তুত' : 'তথ্য পূরণ আবশ্যক'}
-                      </span>
+            {user.role !== 'ADMIN' && (
+              <div className={`p-5 rounded-3xl border transition-all ${
+                isProfileComplete ? 'bg-emerald-50/70 border-emerald-200' : 'bg-amber-50/70 border-amber-200'
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className={`p-3 rounded-2xl flex-shrink-0 ${
+                      isProfileComplete ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+                    }`}>
+                      {isProfileComplete ? <CheckCircle2 className="w-6 h-6" aria-hidden="true" /> : <AlertTriangle className="w-6 h-6" aria-hidden="true" />}
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      {isProfileComplete 
-                        ? `আপনার খামারের জেলা: ${profileSummary?.district || ''}, জমি: ${profileSummary?.land_size || 0} শতক, মাটি: ${profileSummary?.soil_type || ''}, মৌসুম: ${profileSummary?.season || ''}।`
-                        : 'যথাযথ ফসল ও সারের সুপারিশ পেতে নিচে আপনার জমির পরিমাণ, মাটি ও মৌসুমি তথ্য পূরণ করে সংরক্ষণ করুন।'}
-                    </p>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="font-bold text-slate-900 text-base">
+                          খামার প্রোফাইল স্ট্যাটাস: {isProfileComplete ? 'সম্পূর্ণ (Complete)' : 'অপূর্ণ (Pending)'}
+                        </h2>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          isProfileComplete ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
+                        }`}>
+                          {isProfileComplete ? 'সক্রিয় ও প্রস্তুত' : 'তথ্য পূরণ আবশ্যক'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        {isProfileComplete
+                          ? `জেলা: ${profileSummary?.district || ''}, জমি: ${profileSummary?.land_size || 0} শতক, মাটি: ${profileSummary?.soil_type || ''}, মৌসুম: ${profileSummary?.season || ''}।`
+                          : 'ফসল ও সমন্বিত খামার সুপারিশ পেতে প্রথমে আপনার জমির পরিমাণ, মাটি ও মৌসুমি তথ্য পূরণ করে সংরক্ষণ করুন।'}
+                      </p>
+                    </div>
                   </div>
+
+                  {isProfileComplete && activeTab !== 'recommendations' && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('recommendations')}
+                      className="flex items-center gap-2 px-4 py-2.5 min-h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer self-start sm:self-auto"
+                    >
+                      <Sparkles className="w-4 h-4" aria-hidden="true" />
+                      <span>সুপারিশসমূহ দেখুন</span>
+                    </button>
+                  )}
                 </div>
-
-                {isProfileComplete && (
-                  <button
-                    onClick={() => setActiveTab('recommendations')}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer self-start sm:self-auto"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>সুপারিশসমূহ দেখুন</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Tab Navigation: Farm Condition Form vs Recommendations */}
-            <div className="flex bg-slate-200/80 p-1.5 rounded-2xl border border-slate-200 max-w-lg">
-              <button
-                type="button"
-                onClick={() => setActiveTab('profileForm')}
-                className={`flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                  activeTab === 'profileForm'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Layers className="w-4 h-4 text-emerald-600" />
-                <span>আমার খামারের তথ্য (FR-04)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('recommendations')}
-                className={`flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                  activeTab === 'recommendations'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <TrendingUp className="w-4 h-4 text-emerald-600" />
-                <span>উপযুক্ত ফসলের সুপারিশ ও বাজেট (FR-08)</span>
-              </button>
-            </div>
-
-            {/* TAB CONTENT 1: Farm Condition Form */}
-            {activeTab === 'profileForm' && (
-              <div className="space-y-8 animate-in fade-in">
-                <FarmProfileForm onProfileSaved={handleProfileSaved} />
               </div>
             )}
 
-            {/* TAB CONTENT 2: AI Crop Recommendation & Costing */}
-            {activeTab === 'recommendations' && (
-              <div className="space-y-8 animate-in fade-in">
-                <RecommendationList onNavigateToProfile={() => setActiveTab('profileForm')} />
+            {/* Primary Navigation (Single Scrollable Row, Explicit Bottom Indicator, aria-current="page") */}
+            <nav aria-label="প্রধান মেনু" className="bg-white rounded-2xl border border-slate-200 shadow-2xs px-2">
+              <div className="nav-scroll gap-1">
+                {navItems.map((item) => {
+                  const IconComp = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-current={isActive ? 'page' : undefined}
+                      onClick={(e) => handleNavClick(e, item.id)}
+                      className={`flex-none inline-flex items-center gap-2 px-4 py-3.5 min-h-12 text-xs sm:text-sm font-bold whitespace-nowrap border-b-3 transition-colors cursor-pointer snap-start ${
+                        isActive
+                          ? 'text-emerald-800 border-emerald-600 bg-emerald-50/50'
+                          : 'text-slate-600 hover:text-slate-900 border-transparent hover:bg-slate-50'
+                      }`}
+                    >
+                      <IconComp className={`w-4 h-4 ${isActive ? 'text-emerald-700' : 'text-slate-400'}`} aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+            </nav>
+
+            {/* View Content */}
+            {activeTab === 'profileForm' && (
+              <FarmProfileForm onProfileSaved={handleProfileSaved} />
+            )}
+
+            {activeTab === 'resources' && (
+              <ResourceManager onGenerateIntegrated={() => setActiveTab('recommendations')} />
+            )}
+
+            {activeTab === 'recommendations' && (
+              <RecommendationList
+                onNavigateToProfile={() => setActiveTab('profileForm')}
+                onNavigateToResources={() => setActiveTab('resources')}
+              />
+            )}
+
+            {activeTab === 'history' && (
+              <RecommendationHistory onGenerateNew={() => setActiveTab('recommendations')} />
+            )}
+
+            {activeTab === 'chat' && (
+              <BanglaChatAssistant />
+            )}
+
+            {activeTab === 'admin' && user.role === 'ADMIN' && (
+              <AdminDashboard />
             )}
           </div>
         ) : (
           /* ================= Unauthenticated Hero ================= */
-          <div className="py-12 max-w-4xl mx-auto text-center space-y-8 animate-in fade-in duration-300">
+          <div className="py-12 max-w-4xl mx-auto text-center space-y-8">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-semibold border border-emerald-200">
-              <Sparkles className="w-4 h-4 text-emerald-600" />
-              <span>SE-331 Software Engineering Design Capstone Project</span>
+              <Sparkles className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+              <span>স্মার্ট কৃষি সিদ্ধান্ত সহায়ক প্ল্যাটফর্ম</span>
             </div>
 
             <h1 className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight leading-tight">
@@ -342,16 +400,17 @@ export default function App() {
             </h1>
 
             <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-              agroWish বাংলাদেশের প্রান্তিক কৃষকদের জন্য মাটির ধরণ, ভৌগোলিক অবস্থান, বাজেট এবং জলবায়ু পর্যালোচনা করে সর্বোত্তম লাভজনক ফসল ও সার ব্যবহারের সঠিক পরামর্শ প্রদান করে।
+              agroWish বাংলাদেশের প্রান্তিক কৃষকদের জন্য মাটির ধরন, বাজেট, বিদ্যমান খামার সম্পদ ও সরকারি কৃষি তথ্যভাণ্ডার বিশ্লেষণ করে সর্বোত্তম ফসল, সমন্বিত চাষ ও নিরাপদ বর্জ্য-থেকে-সম্পদ পরামর্শ প্রদান করে।
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <button
+                type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="w-full sm:w-auto px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-2xl shadow-xl shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer text-sm sm:text-base"
+                className="w-full sm:w-auto px-8 py-3.5 min-h-12 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-xl shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer text-sm sm:text-base"
               >
                 <span>নিবন্ধন অথবা লগইন করুন</span>
-                <ArrowRight className="w-5 h-5" />
+                <ArrowRight className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -362,17 +421,13 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200 py-6 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <Sprout className="w-4 h-4 text-emerald-600" />
+            <Sprout className="w-4 h-4 text-emerald-600" aria-hidden="true" />
             <span className="font-semibold text-slate-700">agroWish</span>
-            <span>&copy; {new Date().getFullYear()} - SE-331 Software Engineering Design Capstone Project</span>
-          </div>
-          <div>
-            <span>AI & Backend Lead: Md Adnan Ul Islam (ID: 241-35-103)</span>
+            <span>&copy; {new Date().getFullYear()} - স্মার্ট কৃষি সহায়ক প্ল্যাটফর্ম</span>
           </div>
         </div>
       </footer>
 
-      {/* -------------------- Bangla Auth Modal -------------------- */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}

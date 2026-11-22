@@ -6,9 +6,41 @@ body {
   background-color: #f8fafc;
 }
 
+/* Accessible focus rings (WCAG 2.4.7 / 1.4.11) */
+:where(a:any-link, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #059669;
+  outline-offset: 2px;
+}
+
+/* Screen-reader only utility preserving keyboard/assistive tree access */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Single-row horizontal tab/nav scroll container */
+.nav-scroll {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: inline proximity;
+}
+.nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: #f1f5f9;
@@ -20,4 +52,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
-

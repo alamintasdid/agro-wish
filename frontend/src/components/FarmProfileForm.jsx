@@ -305,16 +305,12 @@ export default function FarmProfileForm({ onProfileSaved }) {
               <Layers className="w-5 h-5" />
             </div>
             <h2 className="text-xl font-bold text-slate-900">
-              খামারের বর্তমান অবস্থা ও সম্পদ সমীক্ষা (FR-04, FR-06)
+              খামারের বর্তমান অবস্থা ও সম্পদ সমীক্ষা
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             আপনার খামারের মাটি, পানির উৎস, বাজেট ও বিদ্যমান সম্পদ দিন যাতে এআই সঠিক ফসল নির্ধারণ করতে পারে।
           </p>
-        </div>
-        <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 self-start sm:self-auto">
-          <Sparkles className="w-4 h-4 text-emerald-600" />
-          <span>Member 3 UI Module</span>
         </div>
       </div>
 
@@ -484,7 +480,7 @@ export default function FarmProfileForm({ onProfileSaved }) {
         <div className="p-5 sm:p-6 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-5">
           <div className="flex items-center gap-2 text-slate-800 font-bold text-base pb-3 border-b border-slate-200/60">
             <Calendar className="w-4 h-4 text-emerald-600" />
-            <span>২. মৌসুম ও বাজেট পরিকল্পনা (Season & Budget - FR-05)</span>
+            <span>২. মৌসুম ও বাজেট পরিকল্পনা (Season & Budget)</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -562,7 +558,7 @@ export default function FarmProfileForm({ onProfileSaved }) {
         <div className="p-5 sm:p-6 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-5">
           <div className="flex items-center gap-2 text-slate-800 font-bold text-base pb-3 border-b border-slate-200/60">
             <Waves className="w-4 h-4 text-emerald-600" />
-            <span>৩. বিদ্যমান খামার সম্পদ সমীক্ষা (Resource Inventory - FR-06)</span>
+            <span>৩. বিদ্যমান খামার সম্পদ সমীক্ষা (Resource Inventory)</span>
           </div>
 
           {/* Pond Toggle */}
