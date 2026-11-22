@@ -23,6 +23,7 @@ router.use(authenticateToken);
 const VALID_SOIL_TYPES = ['দোআঁশ', 'বেলে', 'এঁটেল', 'পলি'];
 const VALID_WATER_AVAILABILITY = ['উচ্চ', 'মাঝারি', 'স্বল্প'];
 const VALID_SEASONS = ['রবি', 'খরিপ-১', 'খরিপ-২'];
+const VALID_RISK_PREFS = ['LOW', 'MEDIUM', 'HIGH'];
 
 /**
  * Helper to validate positive decimal numbers
@@ -65,6 +66,8 @@ router.post('/', async (req, res) => {
       water_availability,
       season,
       budget,
+      farming_goal,
+      risk_preference,
       has_pond,
       pond_size,
       existing_resources
@@ -161,18 +164,28 @@ router.post('/', async (req, res) => {
       }
     }
 
+    const cleanGoal = farming_goal && typeof farming_goal === 'string' && farming_goal.trim()
+      ? farming_goal.trim().slice(0, 120)
+      : undefined;
+    const cleanRisk = risk_preference && VALID_RISK_PREFS.includes(String(risk_preference).toUpperCase())
+      ? String(risk_preference).toUpperCase()
+      : undefined;
+
     // 10. Upsert logic into farmer_profiles
     const [existing] = await pool.execute(
-      'SELECT profile_id FROM farmer_profiles WHERE user_id = ? LIMIT 1',
+      'SELECT profile_id, farming_goal, risk_preference FROM farmer_profiles WHERE user_id = ? LIMIT 1',
       [userId]
     );
 
     if (existing.length > 0) {
       // Update existing record
+      const nextGoal = cleanGoal !== undefined ? cleanGoal : (existing[0].farming_goal || 'সুষম মুনাফা ও খাদ্য নিরাপত্তা');
+      const nextRisk = cleanRisk !== undefined ? cleanRisk : (existing[0].risk_preference || 'MEDIUM');
       await pool.execute(
         `UPDATE farmer_profiles 
          SET district = ?, upazila = ?, land_size = ?, soil_type = ?, 
              water_availability = ?, season = ?, budget = ?, 
+             farming_goal = ?, risk_preference = ?,
              has_pond = ?, pond_size = ?, existing_resources = ?
          WHERE user_id = ?`,
         [
@@ -183,6 +196,8 @@ router.post('/', async (req, res) => {
           water_availability.trim(),
           season.trim(),
           cleanBudget,
+          nextGoal,
+          nextRisk,
           cleanHasPond ? 1 : 0,
           cleanPondSize,
           resourcesJson,
@@ -193,8 +208,8 @@ router.post('/', async (req, res) => {
       // Insert new record
       await pool.execute(
         `INSERT INTO farmer_profiles 
-         (user_id, district, upazila, land_size, soil_type, water_availability, season, budget, has_pond, pond_size, existing_resources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (user_id, district, upazila, land_size, soil_type, water_availability, season, budget, farming_goal, risk_preference, has_pond, pond_size, existing_resources)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           userId,
           district.trim(),
@@ -204,6 +219,8 @@ router.post('/', async (req, res) => {
           water_availability.trim(),
           season.trim(),
           cleanBudget,
+          cleanGoal || 'সুষম মুনাফা ও খাদ্য নিরাপত্তা',
+          cleanRisk || 'MEDIUM',
           cleanHasPond ? 1 : 0,
           cleanPondSize,
           resourcesJson
@@ -260,8 +277,8 @@ router.get('/me', async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT u.user_id, u.full_name, u.email, u.phone, u.role,
               fp.profile_id, fp.district, fp.upazila, fp.land_size, fp.soil_type,
-              fp.water_availability, fp.season, fp.budget, fp.has_pond, fp.pond_size,
-              fp.existing_resources, fp.updated_at
+              fp.water_availability, fp.season, fp.budget, fp.farming_goal, fp.risk_preference,
+              fp.has_pond, fp.pond_size, fp.existing_resources, fp.updated_at
        FROM users u
        LEFT JOIN farmer_profiles fp ON u.user_id = fp.user_id
        WHERE u.user_id = ?
@@ -318,6 +335,8 @@ router.get('/me', async (req, res) => {
         water_availability: data.water_availability || 'মাঝারি',
         season: data.season || 'রবি',
         budget: data.budget !== null ? parseFloat(data.budget) : '',
+        farming_goal: data.farming_goal || 'সুষম মুনাফা ও খাদ্য নিরাপত্তা',
+        risk_preference: data.risk_preference || 'MEDIUM',
         has_pond: Boolean(data.has_pond),
         pond_size: data.pond_size !== null ? parseFloat(data.pond_size) : 0,
         existing_resources: parsedResources,
