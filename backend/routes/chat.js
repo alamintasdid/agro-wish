@@ -10,6 +10,7 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { searchAgriculturalKnowledge } = require('../services/ragService');
 
 router.use(authenticateToken);
 
@@ -39,51 +40,36 @@ function tokenizeQuery(text) {
  * Combines MySQL FULLTEXT relevance with Bangla/English token scoring.
  */
 async function retrieveKnowledgeDocuments(queryText) {
-  const [allDocs] = await pool.execute(
-    'SELECT doc_id, title, source, category, keywords, content, updated_at FROM knowledge_documents'
-  );
-  if (allDocs.length === 0) return [];
-
-  const fulltextScores = new Map();
+  // Use advanced hybrid semantic retrieval with BARI/BRRI/DAE/FAO grounding
   try {
-    const safeQuery = String(queryText || '').trim();
-    if (safeQuery.length >= 3) {
-      const [ftRows] = await pool.execute(
-        `SELECT doc_id, MATCH(title, keywords, content) AGAINST (? IN NATURAL LANGUAGE MODE) AS ft_score
-         FROM knowledge_documents
-         WHERE MATCH(title, keywords, content) AGAINST (? IN NATURAL LANGUAGE MODE)
-         ORDER BY ft_score DESC
-         LIMIT 5`,
-        [safeQuery, safeQuery]
-      );
-      for (const r of ftRows) {
-        fulltextScores.set(r.doc_id, parseFloat(r.ft_score) || 0);
-      }
-    }
-  } catch {
-    // Continue gracefully with token scoring if FULLTEXT fails on short Bangla query
+    const results = await searchAgriculturalKnowledge(queryText, 3);
+    if (results && results.length > 0) return results;
+  } catch (err) {
+    console.warn('[RAG Search Notice]', err.message);
   }
 
-  const tokens = tokenizeQuery(queryText);
-
-  const scored = allDocs.map((doc) => {
-    const titleLower = (doc.title || '').toLowerCase();
-    const keywordsLower = (doc.keywords || '').toLowerCase();
-    const contentLower = (doc.content || '').toLowerCase();
-
-    let score = (fulltextScores.get(doc.doc_id) || 0) * 6;
-    for (const tok of tokens) {
-      if (titleLower.includes(tok)) score += 5;
-      if (keywordsLower.includes(tok)) score += 4;
-      if (contentLower.includes(tok)) score += 2;
-    }
-    return { ...doc, relevance_score: score };
-  });
-
-  return scored
-    .filter((d) => d.relevance_score > 0)
-    .sort((a, b) => b.relevance_score - a.relevance_score)
-    .slice(0, 3);
+  // Resilient DB fallback
+  try {
+    const [allDocs] = await pool.execute(
+      'SELECT doc_id, title, source, category, keywords, content, updated_at FROM knowledge_documents'
+    );
+    if (allDocs.length === 0) return [];
+    const tokens = tokenizeQuery(queryText);
+    return allDocs
+      .map((doc) => {
+        let score = 0;
+        for (const tok of tokens) {
+          if ((doc.title || '').toLowerCase().includes(tok)) score += 5;
+          if ((doc.content || '').toLowerCase().includes(tok)) score += 2;
+        }
+        return { ...doc, relevance_score: score };
+      })
+      .filter((d) => d.relevance_score > 0)
+      .sort((a, b) => b.relevance_score - a.relevance_score)
+      .slice(0, 3);
+  } catch {
+    return [];
+  }
 }
 
 /**

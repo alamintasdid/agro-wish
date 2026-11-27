@@ -365,6 +365,16 @@ export default function RecommendationList({ onNavigateToProfile, onNavigateToRe
                           <Clock className="w-3 h-3" aria-hidden="true" />
                           {crop.duration_days || 120} দিন
                         </span>
+                        {crop.affordability_status === 'NEAR_BUDGET' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 mt-1">
+                            বাজেটের সামান্য অতিরিক্ত (ঘাটতি: ৳{crop.budget_gap})
+                          </span>
+                        )}
+                        {crop.affordability_status === 'OVER_BUDGET' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-800 border border-rose-300 mt-1">
+                            বাজেট ঘাটতি: ৳{crop.budget_gap}
+                          </span>
+                        )}
                       </div>
                     </div>
 

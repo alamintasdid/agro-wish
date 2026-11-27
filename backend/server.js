@@ -11,7 +11,9 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
-const { testConnection } = require('./db');
+const { testConnection, getDatabaseMode } = require('./db');
+const { securityHeaders, sanitizeInputs } = require('./middleware/security');
+const { apiLimiter } = require('./middleware/rateLimiter');
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profile');
 const recommendationsRoutes = require('./routes/recommendations');
@@ -19,12 +21,17 @@ const cropsRoutes = require('./routes/crops');
 const resourcesRoutes = require('./routes/resources');
 const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
+const landsRoutes = require('./routes/lands');
 
 // Load environment configuration from .env
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Security Headers & Input Sanitization
+app.use(securityHeaders);
+app.use(sanitizeInputs);
 
 // Enable CORS for frontend client
 app.use(cors({
@@ -37,6 +44,9 @@ app.use(cors({
 // Express JSON body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Apply Global API Rate Limiting to all /api routes
+app.use('/api', apiLimiter);
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -53,6 +63,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ONLINE',
     project: 'agroWish (SE-331 Capstone Project)',
+    database_mode: typeof getDatabaseMode === 'function' ? getDatabaseMode() : 'ONLINE',
     modules: [
       { id: 'M1', lead: 'Md Adnan Ul Islam (241-35-103)', role: 'AI & Algorithm Lead', features: 'Crop Recommendation & Cost Breakdown Engine' },
       { id: 'M2', lead: 'Most Tasnim Jahan Rifa (241-35-116)', role: 'Backend & Data Lead', features: 'Authentication & Database Schema' },
@@ -67,6 +78,7 @@ app.get('/api/health', (req, res) => {
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/lands', landsRoutes);
 app.use('/api/resources', resourcesRoutes);
 app.use('/api/recommendations', recommendationsRoutes);
 app.use('/api/crops', cropsRoutes);

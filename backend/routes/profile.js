@@ -1,20 +1,14 @@
 /**
  * agroWish Backend - Farmer Farm Condition & Resource Inventory Module
- * SE-331 Software Engineering Design Capstone Project
- * Member 3: Tasdid Al Amin (ID: 241-35-108)
- * Lead: Frontend & Usability Lead (Assisted by Member 2 Data Architecture)
- * 
- * SRS Reference:
- * - Section 5: FR-03 (Farmer Profile), FR-04 (Farm Condition Input), FR-05 (Budget/Goal), 
- *              FR-06 (Existing Resource Inventory), FR-07 (Validation), FR-17 (Bangla Display), FR-30 (Status)
- * - Section 6: NFR-03 (Usability & Responsiveness)
- * - Section 7.4: ERD (farmer_profiles, users)
+ * Supports Bangladeshi land measurement units (Decimal, Katha, Bigha, Acre, Hectare),
+ * soil attributes, irrigation facilities, and agricultural equipment inventory.
  */
 
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { convertToDecimals, convertFromDecimals, LAND_UNITS } = require('../utils/landUnits');
 
 // All profile endpoints are strictly protected by JWT authentication
 router.use(authenticateToken);
@@ -25,18 +19,12 @@ const VALID_WATER_AVAILABILITY = ['উচ্চ', 'মাঝারি', 'স্�
 const VALID_SEASONS = ['রবি', 'খরিপ-১', 'খরিপ-২'];
 const VALID_RISK_PREFS = ['LOW', 'MEDIUM', 'HIGH'];
 
-/**
- * Helper to validate positive decimal numbers
- */
 function isPositiveNumber(val) {
   if (val === undefined || val === null || val === '') return false;
   const num = parseFloat(val);
   return !isNaN(num) && num > 0;
 }
 
-/**
- * Helper to validate non-negative numbers (zero or greater)
- */
 function isNonNegativeNumber(val) {
   if (val === undefined || val === null || val === '') return false;
   const num = parseFloat(val);
@@ -44,8 +32,22 @@ function isNonNegativeNumber(val) {
 }
 
 /**
+ * Generates conversion equivalents across all Bangladeshi land units
+ */
+function getLandConversions(decimals) {
+  const dec = parseFloat(decimals) || 0;
+  return {
+    decimal: dec,
+    katha: convertFromDecimals(dec, 'katha'),
+    bigha: convertFromDecimals(dec, 'bigha'),
+    acre: convertFromDecimals(dec, 'acre'),
+    hectare: convertFromDecimals(dec, 'hectare')
+  };
+}
+
+/**
  * POST /api/profile
- * FR-03, FR-04, FR-05, FR-06, FR-07: Save or update farmer farm conditions & resource inventory
+ * Save or update farmer farm conditions & resource inventory
  */
 router.post('/', async (req, res) => {
   try {
@@ -62,18 +64,22 @@ router.post('/', async (req, res) => {
       district,
       upazila,
       land_size,
+      land_unit = 'decimal',
       soil_type,
+      soil_ph,
       water_availability,
+      irrigation_type = 'সেচ পাম্প / গভীর নলকূপ',
       season,
       budget,
       farming_goal,
       risk_preference,
       has_pond,
       pond_size,
-      existing_resources
+      existing_resources,
+      equipment_inventory
     } = req.body;
 
-    // 1. Validate District (required string)
+    // 1. Validate District
     if (!district || typeof district !== 'string' || !district.trim()) {
       return res.status(400).json({
         success: false,
@@ -81,7 +87,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // 2. Validate Upazila (required string)
+    // 2. Validate Upazila
     if (!upazila || typeof upazila !== 'string' || !upazila.trim()) {
       return res.status(400).json({
         success: false,
@@ -89,14 +95,17 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // 3. Validate Land Size (positive decimal in শতক/decimal)
+    // 3. Validate and Convert Land Size
     if (!isPositiveNumber(land_size)) {
       return res.status(400).json({
         success: false,
-        message: 'জমির পরিমাণ শূন্যের বেশি হতে হবে (শতক এককে লিখুন)।'
+        message: 'জমির পরিমাণ শূন্যের বেশি হতে হবে।'
       });
     }
-    const cleanLandSize = parseFloat(land_size);
+
+    const rawLandNum = parseFloat(land_size);
+    // Convert to standard decimals based on provided unit
+    const cleanLandSize = convertToDecimals(rawLandNum, land_unit);
 
     // 4. Validate Soil Type
     if (!soil_type || !VALID_SOIL_TYPES.includes(soil_type.trim())) {
@@ -122,7 +131,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // 7. Validate Budget (minimum 0)
+    // 7. Validate Budget
     if (!isNonNegativeNumber(budget)) {
       return res.status(400).json({
         success: false,
@@ -134,101 +143,169 @@ router.post('/', async (req, res) => {
     // 8. Process Pond attributes
     const cleanHasPond = has_pond === true || has_pond === 'true' || has_pond === 1;
     let cleanPondSize = 0;
-    if (cleanHasPond) {
-      if (pond_size !== undefined && pond_size !== null && pond_size !== '') {
-        const pSize = parseFloat(pond_size);
-        if (isNaN(pSize) || pSize < 0) {
-          return res.status(400).json({
-            success: false,
-            message: 'পুকুরের পরিমাপ সঠিক সংখ্যায় দিন (শতক এককে)।'
-          });
-        }
-        cleanPondSize = pSize;
-      }
+    if (cleanHasPond && isPositiveNumber(pond_size)) {
+      cleanPondSize = parseFloat(pond_size);
     }
 
-    // 9. Process Existing Resources (Array or JSON string)
+    // 9. Process Existing Resources
     let resourcesJson = null;
     if (existing_resources) {
       if (Array.isArray(existing_resources)) {
         resourcesJson = JSON.stringify(existing_resources);
       } else if (typeof existing_resources === 'string') {
         try {
-          // Verify if it's already a JSON string
           JSON.parse(existing_resources);
           resourcesJson = existing_resources;
         } catch {
-          // If comma-separated or plain string, wrap in array
           resourcesJson = JSON.stringify([existing_resources]);
         }
       }
     }
 
-    const cleanGoal = farming_goal && typeof farming_goal === 'string' && farming_goal.trim()
-      ? farming_goal.trim().slice(0, 120)
-      : undefined;
-    const cleanRisk = risk_preference && VALID_RISK_PREFS.includes(String(risk_preference).toUpperCase())
-      ? String(risk_preference).toUpperCase()
-      : undefined;
+    // 10. Process Equipment Inventory
+    let equipJson = null;
+    if (equipment_inventory) {
+      if (Array.isArray(equipment_inventory)) {
+        equipJson = JSON.stringify(equipment_inventory);
+      } else if (typeof equipment_inventory === 'string') {
+        try {
+          JSON.parse(equipment_inventory);
+          equipJson = equipment_inventory;
+        } catch {
+          equipJson = JSON.stringify([equipment_inventory]);
+        }
+      }
+    }
 
-    // 10. Upsert logic into farmer_profiles
-    const [existing] = await pool.execute(
-      'SELECT profile_id, farming_goal, risk_preference FROM farmer_profiles WHERE user_id = ? LIMIT 1',
+    // Optional Soil pH
+    let cleanPh = null;
+    if (soil_ph !== undefined && soil_ph !== null && soil_ph !== '') {
+      const phNum = parseFloat(soil_ph);
+      if (!isNaN(phNum) && phNum >= 3.5 && phNum <= 9.5) {
+        cleanPh = phNum;
+      }
+    }
+
+    const cleanGoal = (farming_goal && typeof farming_goal === 'string' && farming_goal.trim())
+      ? farming_goal.trim()
+      : 'সুষম মুনাফা ও খাদ্য নিরাপত্তা';
+
+    const cleanRisk = (risk_preference && VALID_RISK_PREFS.includes(risk_preference.trim().toUpperCase()))
+      ? risk_preference.trim().toUpperCase()
+      : 'MEDIUM';
+
+    // 11. Check if profile exists for this user
+    const [existingProfiles] = await pool.execute(
+      'SELECT profile_id FROM farmer_profiles WHERE user_id = ? LIMIT 1',
       [userId]
     );
 
-    if (existing.length > 0) {
-      // Update existing record
-      const nextGoal = cleanGoal !== undefined ? cleanGoal : (existing[0].farming_goal || 'সুষম মুনাফা ও খাদ্য নিরাপত্তা');
-      const nextRisk = cleanRisk !== undefined ? cleanRisk : (existing[0].risk_preference || 'MEDIUM');
-      await pool.execute(
-        `UPDATE farmer_profiles 
-         SET district = ?, upazila = ?, land_size = ?, soil_type = ?, 
-             water_availability = ?, season = ?, budget = ?, 
-             farming_goal = ?, risk_preference = ?,
-             has_pond = ?, pond_size = ?, existing_resources = ?
-         WHERE user_id = ?`,
-        [
-          district.trim(),
-          upazila.trim(),
-          cleanLandSize,
-          soil_type.trim(),
-          water_availability.trim(),
-          season.trim(),
-          cleanBudget,
-          nextGoal,
-          nextRisk,
-          cleanHasPond ? 1 : 0,
-          cleanPondSize,
-          resourcesJson,
-          userId
-        ]
-      );
+    if (existingProfiles.length > 0) {
+      try {
+        await pool.execute(
+          `UPDATE farmer_profiles 
+           SET district = ?, upazila = ?, land_size = ?, land_unit = ?, soil_type = ?, soil_ph = ?,
+               water_availability = ?, irrigation_type = ?, season = ?, budget = ?,
+               farming_goal = ?, risk_preference = ?, has_pond = ?, pond_size = ?,
+               existing_resources = ?, equipment_inventory = ?
+           WHERE user_id = ?`,
+          [
+            district.trim(),
+            upazila.trim(),
+            cleanLandSize,
+            land_unit,
+            soil_type.trim(),
+            cleanPh,
+            water_availability.trim(),
+            irrigation_type.trim(),
+            season.trim(),
+            cleanBudget,
+            cleanGoal,
+            cleanRisk,
+            cleanHasPond ? 1 : 0,
+            cleanPondSize,
+            resourcesJson,
+            equipJson,
+            userId
+          ]
+        );
+      } catch (colErr) {
+        // Fallback for legacy columns
+        await pool.execute(
+          `UPDATE farmer_profiles 
+           SET district = ?, upazila = ?, land_size = ?, soil_type = ?,
+               water_availability = ?, season = ?, budget = ?,
+               farming_goal = ?, risk_preference = ?, has_pond = ?, pond_size = ?,
+               existing_resources = ?
+           WHERE user_id = ?`,
+          [
+            district.trim(),
+            upazila.trim(),
+            cleanLandSize,
+            soil_type.trim(),
+            water_availability.trim(),
+            season.trim(),
+            cleanBudget,
+            cleanGoal,
+            cleanRisk,
+            cleanHasPond ? 1 : 0,
+            cleanPondSize,
+            resourcesJson,
+            userId
+          ]
+        );
+      }
     } else {
-      // Insert new record
-      await pool.execute(
-        `INSERT INTO farmer_profiles 
-         (user_id, district, upazila, land_size, soil_type, water_availability, season, budget, farming_goal, risk_preference, has_pond, pond_size, existing_resources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          district.trim(),
-          upazila.trim(),
-          cleanLandSize,
-          soil_type.trim(),
-          water_availability.trim(),
-          season.trim(),
-          cleanBudget,
-          cleanGoal || 'সুষম মুনাফা ও খাদ্য নিরাপত্তা',
-          cleanRisk || 'MEDIUM',
-          cleanHasPond ? 1 : 0,
-          cleanPondSize,
-          resourcesJson
-        ]
-      );
+      try {
+        await pool.execute(
+          `INSERT INTO farmer_profiles 
+           (user_id, district, upazila, land_size, land_unit, soil_type, soil_ph, water_availability, irrigation_type, season, budget, farming_goal, risk_preference, has_pond, pond_size, existing_resources, equipment_inventory)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId,
+            district.trim(),
+            upazila.trim(),
+            cleanLandSize,
+            land_unit,
+            soil_type.trim(),
+            cleanPh,
+            water_availability.trim(),
+            irrigation_type.trim(),
+            season.trim(),
+            cleanBudget,
+            cleanGoal,
+            cleanRisk,
+            cleanHasPond ? 1 : 0,
+            cleanPondSize,
+            resourcesJson,
+            equipJson
+          ]
+        );
+      } catch (insertColErr) {
+        await pool.execute(
+          `INSERT INTO farmer_profiles 
+           (user_id, district, upazila, land_size, soil_type, water_availability, season, budget, farming_goal, risk_preference, has_pond, pond_size, existing_resources)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId,
+            district.trim(),
+            upazila.trim(),
+            cleanLandSize,
+            soil_type.trim(),
+            water_availability.trim(),
+            season.trim(),
+            cleanBudget,
+            cleanGoal,
+            cleanRisk,
+            cleanHasPond ? 1 : 0,
+            cleanPondSize,
+            resourcesJson
+          ]
+        );
+      }
     }
 
-    // 11. Retrieve updated record for confirmation
+    // 12. Retrieve updated record for response
     const [rows] = await pool.execute(
       'SELECT * FROM farmer_profiles WHERE user_id = ? LIMIT 1',
       [userId]
@@ -246,13 +323,27 @@ router.post('/', async (req, res) => {
       }
     }
 
+    let parsedEquip = [];
+    if (savedProfile.equipment_inventory) {
+      try {
+        parsedEquip = typeof savedProfile.equipment_inventory === 'string'
+          ? JSON.parse(savedProfile.equipment_inventory)
+          : savedProfile.equipment_inventory;
+      } catch {
+        parsedEquip = [];
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: 'আপনার খামারের তথ্য সফলভাবে সংরক্ষিত হয়েছে!',
       profile: {
         ...savedProfile,
+        land_size: parseFloat(savedProfile.land_size),
+        land_conversions: getLandConversions(savedProfile.land_size),
         has_pond: Boolean(savedProfile.has_pond),
-        existing_resources: parsedResources
+        existing_resources: parsedResources,
+        equipment_inventory: parsedEquip
       }
     });
 
@@ -268,7 +359,6 @@ router.post('/', async (req, res) => {
 
 /**
  * GET /api/profile/me
- * FR-03, FR-04: Returns the authenticated user's saved profile & farm conditions for prefilling
  */
 router.get('/me', async (req, res) => {
   try {
@@ -287,10 +377,7 @@ router.get('/me', async (req, res) => {
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'ব্যবহারকারী খুঁজে পাওয়া যায়নি।'
-      });
+      return res.status(404).json({ success: false, message: 'ব্যবহারকারী খুঁজে পাওয়া যায়নি।' });
     }
 
     const data = rows[0];
@@ -315,6 +402,8 @@ router.get('/me', async (req, res) => {
       data.season
     );
 
+    const landDecimals = data.land_size !== null ? parseFloat(data.land_size) : 0;
+
     return res.status(200).json({
       success: true,
       user: {
@@ -330,7 +419,8 @@ router.get('/me', async (req, res) => {
         profile_id: data.profile_id,
         district: data.district || '',
         upazila: data.upazila || '',
-        land_size: data.land_size !== null ? parseFloat(data.land_size) : '',
+        land_size: landDecimals || '',
+        land_conversions: getLandConversions(landDecimals),
         soil_type: data.soil_type || 'দোআঁশ',
         water_availability: data.water_availability || 'মাঝারি',
         season: data.season || 'রবি',
@@ -349,13 +439,11 @@ router.get('/me', async (req, res) => {
     console.error('[GET /api/profile/me Error]', error);
     return res.status(500).json({
       success: false,
-      message: 'খামারের তথ্য লোড করতে ব্যর্থ হয়েছে।',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'খামারের তথ্য লোড করতে ব্যর্থ হয়েছে।'
     });
   }
 });
 
-// Alias for GET /api/profile
 router.get('/', (req, res) => {
   res.redirect(307, '/api/profile/me');
 });

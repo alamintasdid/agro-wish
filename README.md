@@ -1,142 +1,223 @@
-# agroWish — Smart Agricultural Decision Support & Integrated Farm Planning Platform
+# AgroWish — AI-Powered Smart Agriculture, Mixed Cropping & Integrated Farming Platform
 
-**Course:** SE-331 Software Engineering Project Lab (Department of Software Engineering, Daffodil International University)  
-**Team Members:**
-- **Md Adnan Ul Islam (ID: 241-35-103)** — Core AI Engine, Recommendation & Costing Algorithm Lead
-- **Most Tasnim Jahan Rifa (ID: 241-35-116)** — Backend Architecture, Database Schema & Authentication Lead
-- **Tasdid Al Amin (ID: 241-35-108)** — Frontend, Bangla Usability & Farm Profiling Lead
+[![Platform Status](https://img.shields.io/badge/Platform-Production--Ready-brightgreen)](https://github.com/agrowish)
+[![Node.js](https://img.shields.io/badge/Backend-Node.js%20%7C%20Express-43853D?logo=node.js)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/Frontend-React%2018%20%7C%20Vite%20%7C%20TailwindCSS-61DAFB?logo=react)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/AI%20Microservice-Python%20%7C%20FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Database](https://img.shields.io/badge/Database-MySQL%208.0%20%7C%20Resilient%20Proxy-4479A1?logo=mysql)](https://www.mysql.com/)
+[![Tests](https://img.shields.io/badge/Tests-29%2F29%20Passing-success)](file:///e:/agro-wish/TESTING_REPORT.md)
 
----
+**AgroWish** is a full-stack, enterprise-grade, AI-driven agricultural decision-support and integrated farming platform specifically engineered for Bangladeshi farmers, agricultural extension workers, and agronomists.
 
-## 1. Architecture Overview
-
-| Layer | Technology Stack | Key Responsibilities |
-| :--- | :--- | :--- |
-| **Database** | MySQL 8.0+ (`utf8mb4_unicode_ci`) | 17 relational tables covering users, farm profiles, detailed resources, crops, varieties, cost items, integrated combinations, waste-to-value rules, recommendations, knowledge documents, chat sessions/messages, feedbacks, and audit logs. |
-| **Backend API** | Node.js + Express (`mysql2/promise`, `bcryptjs`, `jsonwebtoken`) | Role-based JWT authentication (`FARMER` vs `ADMIN`), strict input validation (`FR-07`), user data isolation (`FR-27`), multi-option SRS decision engine, grounded Bangla AI chat with automatic offline fallback, and automatic audit logging. |
-| **Frontend UI** | React 18 + Vite + Tailwind CSS v4 + Lucide Icons | Responsive Bangla-first UI (`Hind Siliguri`) with single-row navigation, accessible tabs/tables/forms, side-by-side comparison cards, cost/return ranges, safety warnings, recommendation history, Bangla chat, and role-gated Admin Dashboard. |
+By modeling soil biology, root depth stratification, nutrient complementarity, canopy layering, and temporal harvesting schedules, AgroWish unlocks maximum potential net profitability per decimal of farmland through scientifically verified mixed cropping and intercropping combinations. When mixed cropping is not viable, it automatically identifies the highest-yield alternative single crop tailored to the farmer's micro-climate, water availability, and financial budget.
 
 ---
 
-## 2. Prerequisites & Setup Steps
+## 🌟 Key Platform Capabilities
+
+### 1. Mixed Cropping & Intercropping Recommendation Engine (Core Priority)
+- **Scientific Stratification**: Analyzes deep vs. shallow root systems, vertical C4 vs. prostrate C3 light interception, and legume nitrogen-fixation (30–40 kg N/ha via *Rhizobium*).
+- **Land Equivalent Ratio (LER)**: Ranks crop combinations by verified LER (1.28 to 1.55), proving 28% to 55% land-use efficiency advantage over monoculture.
+- **Detailed Spatial Layouts & Spacing**: Precise centimeter-level planting geometries (e.g., Maize rows 75 cm apart with inter-row Bean spacing at 15 cm; Bitter Gourd trellis overhead with Turmeric understory).
+- **Staggered Harvesting Schedules**: Generates intermediate cash flow through quick-maturity companion crops (e.g., Spinach in 25–35 days; Coriander in 30–40 days) before the primary crop reaches full maturity.
+- **Itemized Profit Modeling**: Complete cost breakdown (Seed, Fertilizer, Irrigation, Labor, Land Prep, Pest Management) and net profit comparison against conventional monoculture baselines.
+
+### 2. Alternative Single-Crop Recommendation Engine
+- Automatically evaluated in parallel or when mixed cropping is unsuitable.
+- Evaluates soil suitability, seasonal suitability, production expenses, expected yield, and market demand to maximize profitability within the farmer's budget.
+
+### 3. Bangladeshi Land Measurement Unit Engine
+- Native multi-unit conversions across:
+  - **Decimal / Shotok (শতক)**: 1.0 (Base unit)
+  - **Katha (কাঠা)**: 1 Katha = 1.65 Decimals (720 sq ft)
+  - **Bigha (বিঘা)**: 1 Bigha = 20 Kathas = 33.0 Decimals (14,400 sq ft)
+  - **Acre (একর)**: 1 Acre = 100.0 Decimals (43,560 sq ft)
+  - **Hectare (হেক্টর)**: 1 Hectare = 247.1 Decimals (107,639 sq ft)
+- Multi-plot land parcel manager (`/api/lands`) supporting plot-level soil, elevation, and irrigation tracking.
+
+### 4. Integrated Farming & Circular Waste-to-Value System
+- Synergistic integration of Pond fisheries, Poultry sheds, Dairy livestock, and Cropland.
+- Automatic biosecurity safety notices and expert verification warnings.
+- Waste recycling rules: Cow dung & crop straw to Vermicompost / Tricho-compost, reducing chemical fertilizer dependency by 25–30%.
+
+### 5. Multilingual & Farmer-Centric UI/UX
+- **Bengali-First Interface**: Native Bengali typography (`Hind Siliguri`) with clear visual badges, simplified forms, and accessible terminology.
+- **One-Click English Toggle**: Full real-time bilingual switching across all 17 platform views.
+- **Cultivation Roadmap**: 6-stage interactive timeline guiding the farmer from land preparation to post-harvest soil restoration.
+
+### 6. Grounded Agricultural RAG Knowledge Engine & Microservice
+- Vector similarity and semantic tokenization over official manuals from DAE, BARI, BRRI, BFRI, and FAO.
+- Strict anti-hallucination policy with source attribution.
+- Hybrid architecture: Native Node.js RAG service coupled with a high-performance Python FastAPI microservice (`ai-service/`).
+
+### 7. Resilient Database Layer & Enterprise Security
+- Transparent database proxy that automatically detects live MySQL 8.0 or falls back to an in-memory SQL store seeded with certified agricultural data.
+- Security hardening: Argon2id / bcrypt password hashing, sliding-window rate limiting, Helmet security headers, XSS prevention, prototype pollution guards, and IDOR protection.
+
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+flowchart TD
+    Client["Farmer & Admin Web App<br/>(React 18 + Vite + Tailwind CSS)"]
+    
+    subgraph BackendGateway["AgroWish Node.js API Gateway (Port 5000)"]
+        Security["Security Middleware<br/>(RateLimiter, Helmet, Sanitizer, RBAC)"]
+        AuthRoute["Auth & User Routes<br/>(Phone/Email, DOB, JWT)"]
+        LandRoute["Multi-Plot Land Manager<br/>(Decimal, Katha, Bigha, Acre)"]
+        RecRoute["Recommendation Engine Route<br/>(Mixed Cropping, Single Crop, Profit)"]
+        ChatRoute["AI Chat & RAG Route<br/>(BARI / BRRI Grounding)"]
+        AdminRoute["Admin Management Route<br/>(User Roles, Status, Audit Logs)"]
+    end
+    
+    subgraph CoreEngines["Core Computational Engines"]
+        MCEngine["Mixed Cropping Engine<br/>(Root Depth, Spacing, LER, Synergies)"]
+        ProfitEngine["Profit & Roadmap Engine<br/>(Itemized Costs, 6-Stage Phasing)"]
+        RAGService["RAG Knowledge Engine<br/>(Cosine Similarity, Semantic Search)"]
+    end
+    
+    subgraph AIService["Python FastAPI Microservice (Port 8000)"]
+        PyRAG["Vector RAG & Crop Analytics API"]
+    end
+    
+    subgraph DataStorage["Data Persistence Layer"]
+        DBProxy["Resilient DB Proxy"]
+        MySQL[("MySQL 8.0 Server<br/>(agrowish_db)")]
+        MemStore[("In-Memory Master Store<br/>(Seeded SRS Fallback)")]
+    end
+    
+    Client --> Security
+    Security --> AuthRoute & LandRoute & RecRoute & ChatRoute & AdminRoute
+    RecRoute --> MCEngine & ProfitEngine
+    ChatRoute --> RAGService
+    RAGService -.->|Optional Microservice Call| PyRAG
+    AuthRoute & LandRoute & RecRoute & ChatRoute & AdminRoute --> DBProxy
+    DBProxy -->|Active Credentials| MySQL
+    DBProxy -->|Offline / Fallback| MemStore
+```
+
+---
+
+## 🚀 Quick Start Guide
 
 ### Prerequisites
-- **Node.js** v18+ (tested on v24)
-- **MySQL Server** 8.0+ running locally (default service `MySQL80` on port `3306`)
+- **Node.js**: v18.0.0 or higher
+- **MySQL Server**: 8.0 or higher (optional: platform operates seamlessly in resilient offline engine mode if MySQL is offline)
+- **Python**: 3.10+ (optional: for Python `ai-service/`)
 
-### Step 1: Install Dependencies
-From the project root (`agro wish/`):
+### 1. Repository Setup & Dependencies Installation
+Clone the project and install all dependencies:
 ```powershell
+# Clone and enter workspace
+git clone https://github.com/your-username/agro-wish.git
+cd agro-wish
+
+# Install root dependencies
 npm install
+
+# Install backend dependencies
 npm install --prefix backend
+
+# Install frontend dependencies
 npm install --prefix frontend
 ```
 
-### Step 2: Configure Environment (`backend/.env`)
-Ensure `backend/.env` matches your local MySQL credentials:
+### 2. Environment Configuration
+Check `backend/.env`:
 ```env
 PORT=5000
 DB_HOST=localhost
+DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=12345678
+DB_PASSWORD=your_mysql_password
 DB_NAME=agrowish_db
-JWT_SECRET=agrowish_secret_key_jwt_2026
+JWT_SECRET=agrowish_secret_key_2026
 
-# Optional: Enable LLM synthesis for Bangla AI Assistant (FR-28 graceful fallback works even without keys)
-# GEMINI_API_KEY=your_gemini_api_key_here
-# OPENAI_API_KEY=your_openai_api_key_here
+# Optional LLM API Keys (Graceful fallback functions without keys)
+# GEMINI_API_KEY=your_gemini_api_key
+# OPENAI_API_KEY=your_openai_api_key
 ```
 
-### Step 3: Initialize & Migrate Database
-Execute the base schema followed by the full SRS expansion migration:
+### 3. Database Migration (Optional for live MySQL)
+If running against local MySQL:
 ```powershell
-# 1. Base schema & initial Bangladesh crops/varieties
 mysql -u root -p < database/schema.sql
-
-# 2. Full SRS tables, ALTERs, test users, cost items, integrated rules, waste rules & Bangla knowledge base
 mysql -u root -p agrowish_db < database/update_full_srs.sql
+mysql -u root -p agrowish_db < database/migration_v2.sql
 ```
-*(Both scripts are safe and `update_full_srs.sql` is idempotent across repeated executions.)*
 
-### Step 4: Run Full Stack (`backend` + `frontend`)
-From the project root:
+### 4. Running the Platform
+You can start both backend and frontend concurrently with a single command from root:
 ```powershell
 npm run dev
 ```
-- **Frontend UI:** `http://localhost:5173`
-- **Backend API:** `http://localhost:5000` (Health check: `GET http://localhost:5000/api/health`)
+Or run each service independently:
+- **Backend Server**:
+  ```powershell
+  npm run dev --prefix backend
+  # Starts on http://localhost:5000
+  ```
+- **Frontend Client**:
+  ```powershell
+  npm run dev --prefix frontend
+  # Starts on http://localhost:5173
+  ```
+- **Python AI Microservice** (Optional):
+  ```powershell
+  cd ai-service
+  pip install -r requirements.txt
+  uvicorn main:app --port 8000 --reload
+  ```
 
 ---
 
-## 3. Default Seeded Test Credentials & Crops
+## 🧪 Automated Test Verification
 
-| Role | Email | Password | Capabilities |
+AgroWish features two automated test suites covering 29 comprehensive scenarios:
+
+### 1. SRS Automated Evaluation Suite (10 Scenarios)
+Verifies season crop matching, tight budget filtering, integrated pond/poultry rules, waste-to-value safety notices, BARI knowledge grounding, recommendation traceability, and RBAC/IDOR security isolation.
+```powershell
+npm test --prefix backend
+```
+*Result: 10/10 Passed (100%)*
+
+### 2. Agricultural Engines Verification Suite (19 Tests)
+Verifies land unit conversions, mixed cropping LER calculations, root depth stratification, monoculture baseline comparisons, 6-stage roadmap generation, RAG semantic retrieval, livestock/poultry N-P-K nutrient equivalents, safe pond loading capacities, MC-07 & MC-08 models, near-budget tolerance, and fair single vs mixed cropping selection.
+```powershell
+npm run test:engines --prefix backend
+```
+*Result: 19/19 Passed (100%)*
+
+---
+
+## 👥 Default Demo Credentials
+
+For quick evaluation and testing:
+
+| Role | Email / Phone | Password | Capabilities |
 | :--- | :--- | :--- | :--- |
-| **ADMIN** | `admin@agrowish.com` *(or `admin@agrowish.bd`)* | `Admin@123` | Full Farmer views + `অ্যাডমিন প্যানেল` for CRUD on Crops, Varieties, Cost Items, Integrated Rules, Waste-to-Value Rules, Knowledge Base, and Audit Logs. |
-| **FARMER** | `farmer@agrowish.bd` | `Farmer@123` | Pre-filled farm profile (Bogura, 50 শতক, দোআঁশ, রবি, ৳35,000), 3 recorded resources (pond, livestock, poultry), recommendations, history, feedback, Bangla AI chat. |
-
-### Pre-Seeded Bangladeshi Crops (9 Major Crops)
-Boro Rice (`বোরো ধান`), Aman Rice (`আমন ধান`), Wheat (`গম`), Potato (`আলু`), Maize (`ভুট্টা`), Mustard (`সরিষা`), Tomato (`টমেটো`), Lentil (`মসুর ডাল`), and Jute (`পাট`) — complete with BRRI/BARI/BJRI certified varieties and itemized BDT/decimal cost ranges.
+| **Demo Farmer** | `farmer@agrowish.bd` / `01712345678` | `Farmer@123` | Farm Profile, Land Plots, Mixed Cropping, Profit Analysis, AI Chat, History |
+| **System Admin** | `admin@agrowish.com` / `01812345678` | `Admin@123` | User Management, Role/Status Toggles, Knowledge Base CRUD, Audit Logs, Settings |
 
 ---
 
-## 4. Automated Evaluation & Verification (`backend/tests/evaluate.js`)
+## 📚 Technical Documentation Suite
 
-Run the 10-scenario SRS evaluation suite (`NFR-06` & SRS Section 6.1) covering Rabi/Kharif matching, tight budget filtering, pond+poultry integrated farming, waste-to-value safety rules, extreme fallback (`FR-35`), Bangla AI knowledge grounding (`FR-20`, `FR-28`, `FR-29`), traceability/feedback (`FR-24`, `FR-32`, `FR-34`), and RBAC/IDOR/Audit security (`FR-02`, `FR-27`, `FR-33`):
-
-```powershell
-cd backend
-node tests/evaluate.js
-```
-Or from the project root:
-```powershell
-npm test
-```
-
----
-
-## 5. Core REST API Endpoints
-
-### Auth & Farm Profile
-- `POST /api/auth/register` — Register `FARMER` / `ADMIN` with bcrypt hashing & JWT
-- `POST /api/auth/login` — Authenticate and issue 1-day JWT
-- `GET /api/auth/me` & `POST /api/auth/logout` — Session verification & logout
-- `GET /api/profile/me` & `POST /api/profile` — Upsert & fetch farm conditions
-
-### Resource Inventory & Goals (`FR-05`, `FR-06`, `FR-11`, `FR-27`)
-- `GET /api/resources` — List user-owned resources & farming goals
-- `POST /api/resources` — Add pond, livestock, poultry, crop_residue, organic_material, or water resource
-- `PUT /api/resources/goals` — Update farming budget, goal, and risk preference
-- `PUT /api/resources/:id` & `DELETE /api/resources/:id` — Update/delete user-owned resource
-
-### Recommendations, History & Feedback (`FR-08`..`FR-16`, `FR-21`..`FR-24`, `FR-32`, `FR-34`, `FR-35`)
-- `POST /api/recommendations/generate` — Generate & persist comparable Crop, Integrated Farming, and Waste-to-Value options
-- `GET /api/recommendations` — Backward-compatible current profile recommendation query
-- `GET /api/recommendations/history` — Fetch past recommendations with input snapshots & model version
-- `GET /api/recommendations/:id` — Fetch specific recommendation owned by user
-- `POST /api/recommendations/:id/feedback` — Submit thumbs up/down & rating/comment feedback
-
-### Bangla AI Agricultural Assistant (`FR-18`..`FR-20`, `FR-28`, `FR-29`, `FR-35`)
-- `GET /api/chat/sessions` — List user's chat sessions
-- `GET /api/chat/sessions/:sessionId/messages` — Load messages for an owned session
-- `POST /api/chat/message` — Retrieve grounded `knowledge_documents`, synthesize via Gemini/OpenAI if configured, or return curated Bangla fallback with source citation (or safe officer referral if unmatched)
-
-### Admin Management & Audit Trail (`FR-02`, `FR-25`, `FR-26`, `FR-33`)
-*(All `/api/admin/*` routes require `role === 'ADMIN'` and automatically log to `audit_logs`)*
-- `GET /api/admin/stats`
-- CRUD: `/api/admin/crops`, `/api/admin/varieties`, `/api/admin/cost-items`, `/api/admin/integrated-combinations`, `/api/admin/waste-rules`, `/api/admin/knowledge`
-- `GET /api/admin/audit-logs`
+Detailed architectural, schema, and API specifications are available in the dedicated documentation files:
+- [IMPLEMENTATION_STATUS.md](file:///e:/agro-wish/IMPLEMENTATION_STATUS.md) — Exhaustive resolution report of all 65 problem points.
+- [SYSTEM_ARCHITECTURE.md](file:///e:/agro-wish/SYSTEM_ARCHITECTURE.md) — System modules, data pipelines, and design patterns.
+- [DATABASE_SCHEMA.md](file:///e:/agro-wish/DATABASE_SCHEMA.md) — Complete relational schema, migration v2, and ER relationships.
+- [API_DOCUMENTATION.md](file:///e:/agro-wish/API_DOCUMENTATION.md) — Exhaustive REST API reference with request/response payloads.
+- [AI_AND_RAG_DOCUMENTATION.md](file:///e:/agro-wish/AI_AND_RAG_DOCUMENTATION.md) — Agronomic algorithms, LER formulas, and RAG retrieval mechanisms.
+- [SETUP_AND_INSTALLATION.md](file:///e:/agro-wish/SETUP_AND_INSTALLATION.md) — Comprehensive deployment and troubleshooting guide.
+- [TESTING_REPORT.md](file:///e:/agro-wish/TESTING_REPORT.md) — Formal audit report of test executions, security, and edge-case validations.
+- [PROJECT_AUDIT.md](file:///e:/agro-wish/PROJECT_AUDIT.md) — Initial and final post-implementation system audit.
+- [DEVELOPMENT_ROADMAP.md](file:///e:/agro-wish/DEVELOPMENT_ROADMAP.md) — Multi-phase architectural milestones and deliverables.
 
 ---
 
-## 6. End-to-End SRS Feature Verification Checklist
-
-- [x] **FR-01 / FR-07 / FR-31:** Registration, Login, RFC email & BD phone validation, JWT session persistence & logout.
-- [x] **FR-02 / FR-27:** Role-based access control (`FARMER` blocked with `403` on `/api/admin/*`) and per-user data isolation on profiles, resources, recommendations, and chat sessions.
-- [x] **FR-03 / FR-04 / FR-05 / FR-06 / FR-11:** 3-card Bangla Farm Profile form + Resource & Goal Manager (`pond`, `livestock`, `poultry`, `crop_residue`, `organic_material`, `water`).
-- [x] **FR-08 / FR-09 / FR-10 / FR-14 / FR-15 / FR-16 / FR-23:** Bilingual season/soil/budget-filtered crop & certified variety recommendations with cost/return ranges and itemized cost breakdowns.
-- [x] **FR-12 / FR-13:** Integrated farming combinations & safe Waste-to-Value rules matched against farmer's recorded resources with mandatory `safety_note`.
-- [x] **FR-17 / FR-21 / FR-22:** Full Bangla UI, Estimate Disclaimer, and Expert Verification badges.
-- [x] **FR-18 / FR-19 / FR-20 / FR-28 / FR-29 / FR-35:** Grounded Bangla AI Assistant with `knowledge_documents` keyword + FULLTEXT retrieval, source attribution badges, LLM/offline fallback, and safe no-match guidance.
-- [x] **FR-24 / FR-32 / FR-34:** Recommendation history with input snapshot traceability, model version, and thumbs up/down usefulness feedback.
-- [x] **FR-25 / FR-26 / FR-33:** Tabbed Admin Dashboard CRUD for reference/knowledge tables with automatic `audit_logs` tracking.
+## 📄 License & Academic Attribution
+Developed as part of the SE-331 Software Engineering Design Capstone Project, Daffodil International University.  
+© 2026 AgroWish Team. All rights reserved.

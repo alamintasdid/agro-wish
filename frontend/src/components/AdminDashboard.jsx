@@ -10,6 +10,7 @@ import {
   Recycle,
   BookOpen,
   ClipboardList,
+  Users,
   Plus,
   Trash2,
   Edit3,
@@ -18,6 +19,7 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
+import AdminUserManagement from './AdminUserManagement';
 
 export default function AdminDashboard() {
   const [subTab, setSubTab] = useState('crops'); // 'crops' | 'rules' | 'knowledge' | 'audit'
@@ -225,7 +227,8 @@ export default function AdminDashboard() {
     { id: 'crops', label: 'ফসল, জাত ও খরচ', icon: Sprout },
     { id: 'rules', label: 'সমন্বিত চাষ ও বর্জ্য বিধি', icon: Recycle },
     { id: 'knowledge', label: 'কৃষি তথ্যভাণ্ডার', icon: BookOpen },
-    { id: 'audit', label: `অডিট লগ (${auditLogs.length})`, icon: ClipboardList }
+    { id: 'audit', label: `অডিট লগ (${auditLogs.length})`, icon: ClipboardList },
+    { id: 'users', label: 'ব্যবহারকারী ব্যবস্থাপনা', icon: Users }
   ];
 
   const handleTabKeyDown = (e, idx) => {
@@ -627,6 +630,11 @@ export default function AdminDashboard() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* ================= TAB 5: USER MANAGEMENT ================= */}
+      {subTab === 'users' && (
+        <AdminUserManagement />
       )}
     </div>
   );

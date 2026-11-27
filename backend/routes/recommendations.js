@@ -12,6 +12,8 @@ const router = express.Router();
 const { pool } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const { generateFullSrsRecommendation, normalizeSeason, soilMatches } = require('../services/recommendationEngine');
+const { MIXED_CROPPING_DATABASE } = require('../services/mixedCroppingEngine');
+const { calculateItemizedBudget, compareWithMonocultureBaseline, generateCultivationRoadmap } = require('../services/profitAndRoadmapEngine');
 const { logAudit } = require('../utils/auditLogger');
 
 /**
@@ -355,6 +357,12 @@ router.get('/', authenticateToken, async (req, res) => {
       is_fallback: result.is_fallback,
       fallback_reason: result.fallback_reason,
       farmer_summary: result.farmer_summary,
+      primary_recommendation: result.primary_recommendation,
+      primary_type: result.primary_type,
+      mixed_crop_options: result.mixed_crop_options,
+      alternative_single_crops: result.alternative_single_crops,
+      profit_comparison: result.profit_comparison,
+      cultivation_roadmap: result.cultivation_roadmap,
       recommendations: result.crop_options,
       crop_options: result.crop_options,
       integrated_options: result.integrated_options,
@@ -499,6 +507,81 @@ router.post('/:id/feedback', authenticateToken, async (req, res) => {
       success: false,
       message: 'মতামত সংরক্ষণ করতে সার্ভারে সমস্যা হয়েছে।'
     });
+  }
+});
+
+/**
+ * 5. GET /api/recommendations/mixed-crops
+ * Returns master list of all scientifically validated mixed cropping combinations in Bangladesh
+ */
+router.get('/mixed-crops', (req, res) => {
+  return res.status(200).json({
+    success: true,
+    count: MIXED_CROPPING_DATABASE.length,
+    combinations: MIXED_CROPPING_DATABASE
+  });
+});
+
+/**
+ * 6. POST /api/recommendations/profit-analysis
+ * On-demand side-by-side profit analysis for customized land size and crop choice
+ */
+router.post('/profit-analysis', authenticateToken, (req, res) => {
+  try {
+    const { land_size = 50, cost_per_decimal = 600, expected_revenue_per_decimal = 1300, baseline_cost_per_decimal = 400, baseline_revenue_per_decimal = 700 } = req.body;
+    const land = Math.max(0.5, parseFloat(land_size) || 1);
+
+    const mixedBudget = calculateItemizedBudget(cost_per_decimal, land);
+    const mixedRev = expected_revenue_per_decimal * land;
+    const mixedProfit = mixedRev - mixedBudget.total_cost;
+
+    const baselineTotalCost = baseline_cost_per_decimal * land;
+    const baselineRev = baseline_revenue_per_decimal * land;
+    const baselineProfit = baselineRev - baselineTotalCost;
+
+    const profitDiff = mixedProfit - baselineProfit;
+    const improvementPct = baselineProfit > 0 ? parseFloat(((profitDiff / baselineProfit) * 100).toFixed(1)) : 0;
+
+    const comparison = compareWithMonocultureBaseline(
+      {
+        total_cost: mixedBudget.total_cost,
+        total_return: mixedRev,
+        est_net_profit: mixedProfit,
+        ler: 1.35
+      },
+      {
+        total_cost: baselineTotalCost,
+        total_return: baselineRev,
+        est_net_profit: baselineProfit
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      land_decimals: land,
+      mixed_cropping: {
+        total_investment: mixedBudget.total_cost,
+        expected_revenue: mixedRev,
+        net_profit: mixedProfit,
+        roi_percentage: mixedBudget.total_cost > 0 ? parseFloat(((mixedProfit / mixedBudget.total_cost) * 100).toFixed(1)) : 0,
+        itemized_budget: mixedBudget.breakdown
+      },
+      baseline_monoculture: {
+        total_investment: baselineTotalCost,
+        expected_revenue: baselineRev,
+        net_profit: baselineProfit,
+        roi_percentage: baselineTotalCost > 0 ? parseFloat(((baselineProfit / baselineTotalCost) * 100).toFixed(1)) : 0
+      },
+      comparison: {
+        profit_difference: profitDiff,
+        improvement_percentage: improvementPct,
+        ...comparison
+      },
+      sensitivity_scenarios: comparison.sensitivity_scenarios || [],
+      cash_flow_timeline: comparison.cash_flow_timeline || []
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'মুনাফা বিশ্লেষণ গণনায় ত্রুটি।' });
   }
 });
 

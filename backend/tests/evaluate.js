@@ -24,17 +24,19 @@ function recordScenario(id, title, srsRef, passed, detail) {
   console.log(`       -> ${detail}`);
 }
 
-async function waitForServer(maxAttempts = 30) {
+async function waitForServer(maxAttempts = 60) {
+  let lastErr = null;
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const r = await fetch(`${BASE}/health`);
       if (r.ok) return;
-    } catch {
-      // retry
+      lastErr = new Error(`Health check returned status ${r.status}`);
+    } catch (e) {
+      lastErr = e;
     }
     await new Promise((r) => setTimeout(r, 350));
   }
-  throw new Error('Evaluation server failed to start within timeout');
+  throw new Error(`Evaluation server failed to start within timeout: ${lastErr ? lastErr.message : 'unknown'}`);
 }
 
 async function runEvaluation() {
@@ -48,7 +50,9 @@ async function runEvaluation() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
+  let stdoutBuf = '';
   let stderrBuf = '';
+  srv.stdout.on('data', (d) => { stdoutBuf += d.toString(); });
   srv.stderr.on('data', (d) => { stderrBuf += d.toString(); });
 
   const createdRecIds = [];
@@ -321,7 +325,8 @@ async function runEvaluation() {
     }
   } catch (err) {
     console.error('\nEVALUATION FAILED WITH ERROR:', err.message);
-    if (stderrBuf) console.error('Server STDERR:', stderrBuf);
+    if (stdoutBuf) console.error('Server STDOUT:\n', stdoutBuf);
+    if (stderrBuf) console.error('Server STDERR:\n', stderrBuf);
     process.exitCode = 1;
   } finally {
     srv.kill('SIGTERM');

@@ -629,4 +629,251 @@ router.get('/audit-logs', async (req, res) => {
   }
 });
 
+// =====================================================================
+// 8. USER MANAGEMENT (/api/admin/users)
+// =====================================================================
+
+/**
+ * GET /api/admin/users
+ * Searchable, filterable, and paginated user list for administrators
+ */
+router.get('/users', async (req, res) => {
+  try {
+    const q = req.query.q ? String(req.query.q).trim().toLowerCase() : '';
+    const roleFilter = req.query.role ? String(req.query.role).trim().toUpperCase() : '';
+    const statusFilter = req.query.status ? String(req.query.status).trim().toUpperCase() : '';
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit, 10) || 20));
+    const offset = (page - 1) * limit;
+
+    let whereClauses = [];
+    let params = [];
+
+    if (q) {
+      whereClauses.push('(LOWER(u.full_name) LIKE ? OR LOWER(u.email) LIKE ? OR u.phone LIKE ?)');
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    }
+    if (roleFilter && (roleFilter === 'FARMER' || roleFilter === 'ADMIN')) {
+      whereClauses.push('u.role = ?');
+      params.push(roleFilter);
+    }
+    if (statusFilter && (statusFilter === 'ACTIVE' || statusFilter === 'SUSPENDED')) {
+      whereClauses.push('u.status = ?');
+      params.push(statusFilter);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countSql = `SELECT COUNT(*) AS total FROM users u ${whereSql}`;
+    const [countRows] = await pool.execute(countSql, params);
+    const totalUsers = countRows[0].total;
+
+    const dataSql = `
+      SELECT u.user_id, u.full_name, u.email, u.phone, u.role, u.created_at,
+             fp.district, fp.upazila, fp.land_size, fp.season
+      FROM users u
+      LEFT JOIN farmer_profiles fp ON u.user_id = fp.user_id
+      ${whereSql}
+      ORDER BY u.user_id DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const [userRows] = await pool.execute(dataSql, params);
+
+    return res.status(200).json({
+      success: true,
+      total: totalUsers,
+      page,
+      limit,
+      totalPages: Math.ceil(totalUsers / limit),
+      users: userRows
+    });
+  } catch (error) {
+    console.error('[GET /api/admin/users Error]', error);
+    return res.status(500).json({ success: false, message: 'ব্যবহারকারীদের তালিকা লোড করতে সমস্যা হয়েছে।' });
+  }
+});
+
+/**
+ * GET /api/admin/users/:id
+ * Detailed farmer profile, recorded lands, and recommendation count
+ */
+router.get('/users/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const [userRows] = await pool.execute(
+      `SELECT u.user_id, u.full_name, u.email, u.phone, u.role, u.created_at,
+              fp.profile_id, fp.district, fp.upazila, fp.land_size, fp.soil_type,
+              fp.water_availability, fp.season, fp.budget, fp.has_pond, fp.pond_size,
+              fp.existing_resources
+       FROM users u
+       LEFT JOIN farmer_profiles fp ON u.user_id = fp.user_id
+       WHERE u.user_id = ?
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'ব্যবহারকারী খুঁজে পাওয়া যায়নি।' });
+    }
+
+    const [[recCount]] = await pool.execute('SELECT COUNT(*) AS count FROM recommendations WHERE user_id = ?', [userId]);
+    const [[landCount]] = await pool.execute('SELECT COUNT(*) AS count FROM lands WHERE user_id = ?', [userId]);
+    const [resources] = await pool.execute('SELECT * FROM resources WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        ...userRows[0],
+        total_recommendations: recCount.count,
+        total_lands: landCount.count,
+        resources
+      }
+    });
+  } catch (error) {
+    console.error('[GET /api/admin/users/:id Error]', error);
+    return res.status(500).json({ success: false, message: 'ব্যবহারকারীর তথ্য লোড করতে সমস্যা হয়েছে।' });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id/role
+ * Change user role (FARMER <-> ADMIN)
+ */
+router.put('/users/:id/role', async (req, res) => {
+  try {
+    const targetUserId = parseInt(req.params.id, 10);
+    const { role } = req.body;
+
+    if (!role || (role !== 'FARMER' && role !== 'ADMIN')) {
+      return res.status(400).json({ success: false, message: 'সঠিক রোল নির্বাচন করুন (FARMER অথবা ADMIN)।' });
+    }
+
+    if (targetUserId === req.user.user_id && role !== 'ADMIN') {
+      return res.status(400).json({ success: false, message: 'আপনি নিজের অ্যাডমিন অনুমতি বাতিল করতে পারবেন না।' });
+    }
+
+    const [existing] = await pool.execute('SELECT user_id, full_name, email, role FROM users WHERE user_id = ? LIMIT 1', [targetUserId]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'ব্যবহারকারী খুঁজে পাওয়া যায়নি।' });
+    }
+
+    await pool.execute('UPDATE users SET role = ? WHERE user_id = ?', [role, targetUserId]);
+    await logAudit(req.user.user_id, 'CHANGE_USER_ROLE', `users:${targetUserId}`, req, {
+      from: existing[0].role,
+      to: role,
+      target_user: existing[0].email
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `ব্যবহারকারীর রোল '${role}' এ পরিবর্তিত হয়েছে।`,
+      user_id: targetUserId,
+      role
+    });
+  } catch (error) {
+    console.error('[PUT /api/admin/users/:id/role Error]', error);
+    return res.status(500).json({ success: false, message: 'রোল পরিবর্তন করতে সমস্যা হয়েছে।' });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id/status
+ * Toggle user account status (ACTIVE <-> SUSPENDED)
+ */
+router.put('/users/:id/status', async (req, res) => {
+  try {
+    const targetUserId = parseInt(req.params.id, 10);
+    const { status } = req.body;
+
+    if (!status || (status !== 'ACTIVE' && status !== 'SUSPENDED')) {
+      return res.status(400).json({ success: false, message: 'সঠিক স্ট্যাটাস নির্বাচন করুন (ACTIVE অথবা SUSPENDED)।' });
+    }
+
+    if (targetUserId === req.user.user_id) {
+      return res.status(400).json({ success: false, message: 'আপনি নিজের অ্যাকাউন্ট স্থগিত করতে পারবেন না।' });
+    }
+
+    const [existing] = await pool.execute('SELECT user_id, full_name, email, status FROM users WHERE user_id = ? LIMIT 1', [targetUserId]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'ব্যবহারকারী খুঁজে পাওয়া যায়নি।' });
+    }
+
+    await pool.execute('UPDATE users SET status = ? WHERE user_id = ?', [status, targetUserId]);
+    await logAudit(req.user.user_id, 'CHANGE_USER_STATUS', `users:${targetUserId}`, req, {
+      from: existing[0].status,
+      to: status,
+      target_user: existing[0].email
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `ব্যবহারকারীর স্ট্যাটাস '${status}' এ পরিবর্তিত হয়েছে।`,
+      user_id: targetUserId,
+      status
+    });
+  } catch (error) {
+    console.error('[PUT /api/admin/users/:id/status Error]', error);
+    return res.status(500).json({ success: false, message: 'স্ট্যাটাস পরিবর্তন করতে সমস্যা হয়েছে।' });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:id
+ * Remove user account with safeguard
+ */
+router.delete('/users/:id', async (req, res) => {
+  try {
+    const targetUserId = parseInt(req.params.id, 10);
+
+    if (targetUserId === req.user.user_id) {
+      return res.status(400).json({ success: false, message: 'আপনি নিজের অ্যাকাউন্ট মুছে ফেলতে পারবেন না।' });
+    }
+
+    const [existing] = await pool.execute('SELECT user_id, full_name, email, role FROM users WHERE user_id = ? LIMIT 1', [targetUserId]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'ব্যবহারকারী খুঁজে পাওয়া যায়নি।' });
+    }
+
+    await pool.execute('DELETE FROM users WHERE user_id = ?', [targetUserId]);
+    await logAudit(req.user.user_id, 'DELETE_USER', `users:${targetUserId}`, req, {
+      deleted_user_email: existing[0].email,
+      full_name: existing[0].full_name
+    });
+
+    return res.status(200).json({ success: true, message: 'ব্যবহারকারী অ্যাকাউন্ট সফলভাবে মুছে ফেলা হয়েছে।' });
+  } catch (error) {
+    console.error('[DELETE /api/admin/users/:id Error]', error);
+    return res.status(500).json({ success: false, message: 'ব্যবহারকারী মুছতে সমস্যা হয়েছে।' });
+  }
+});
+
+// =====================================================================
+// 9. SYSTEM SETTINGS (/api/admin/settings)
+// =====================================================================
+
+let systemSettings = {
+  platform_name: 'agroWish - স্মার্ট কৃষি সিদ্ধান্ত গ্রহণ ও সমন্বিত খামার পরিকল্পনা',
+  default_language: 'bn',
+  enable_ai_synthesis: true,
+  max_recommendation_results: 5,
+  ler_threshold_minimum: 1.15,
+  support_phone: '+8801700000000',
+  support_email: 'support@agrowish.bd'
+};
+
+router.get('/settings', (req, res) => {
+  return res.status(200).json({ success: true, settings: systemSettings });
+});
+
+router.post('/settings', async (req, res) => {
+  try {
+    const updates = req.body;
+    systemSettings = { ...systemSettings, ...updates };
+    await logAudit(req.user.user_id, 'UPDATE_SETTINGS', 'system:settings', req, updates);
+    return res.status(200).json({ success: true, message: 'সিস্টেম সেটিংস সফলভাবে সংরক্ষিত হয়েছে।', settings: systemSettings });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'সেটিংস সংরক্ষণে ব্যর্থ।' });
+  }
+});
+
 module.exports = router;
